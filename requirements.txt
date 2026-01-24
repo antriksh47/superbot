@@ -1,0 +1,12 @@
+# Core dependencies for WAT framework tools
+
+# Environment and configuration
+python-dotenv==1.0.0
+
+# Common utilities (add as needed)
+# requests==2.31.0
+# pandas==2.1.4
+# google-auth==2.27.0
+# google-auth-oauthlib==1.2.0
+# google-auth-httplib2==0.2.0
+# google-api-python-client==2.111.0
