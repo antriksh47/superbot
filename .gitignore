@@ -2,9 +2,13 @@
 .env
 credentials.json
 token.json
+token.json.*
 
 # Temporary files
 .tmp/*
+
+# Raw data exports (keep out of git; they belong in cloud storage)
+data/
 
 # Python
 __pycache__/

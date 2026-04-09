@@ -1,12 +1,29 @@
 # Core dependencies for WAT framework tools
 
 # Environment and configuration
-python-dotenv==1.0.0
+python-dotenv==1.0.1
 
-# Common utilities (add as needed)
-# requests==2.31.0
-# pandas==2.1.4
-# google-auth==2.27.0
-# google-auth-oauthlib==1.2.0
-# google-auth-httplib2==0.2.0
-# google-api-python-client==2.111.0
+# Data processing
+pandas==2.2.2
+
+# Google APIs (Drive for fetching script docs)
+google-auth==2.32.0
+google-auth-oauthlib==1.2.1
+google-auth-httplib2==0.2.0
+google-api-python-client==2.137.0
+
+# Document parsing
+python-docx==1.1.2
+pypdf==4.3.1
+
+# Gemini (LLM + embeddings)
+google-genai==0.3.0
+
+# Vector database
+chromadb==0.5.5
+
+# Chatbot UI
+streamlit==1.37.1
+
+# Ad Library HTTP calls (Phase 2)
+requests==2.32.3
