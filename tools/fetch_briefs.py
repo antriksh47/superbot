@@ -41,10 +41,21 @@ MAX_LINKED_PER_BRIEF = 12
 
 
 def get_drive_service():
+    if not TOKEN_FILE.exists():
+        raise SystemExit(
+            f"Missing {TOKEN_FILE}. Run 'python tools/fetch_gdocs.py --auth' first "
+            "to authenticate with Google Drive."
+        )
     creds = Credentials.from_authorized_user_file(str(TOKEN_FILE), SCOPES)
-    if not creds.valid:
-        creds.refresh(Request())
-        TOKEN_FILE.write_text(creds.to_json())
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+            TOKEN_FILE.write_text(creds.to_json())
+        else:
+            raise SystemExit(
+                f"Token expired and can't be refreshed. Re-run "
+                "'python tools/fetch_gdocs.py --auth' to re-authenticate."
+            )
     return build("drive", "v3", credentials=creds)
 
 

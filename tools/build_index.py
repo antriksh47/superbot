@@ -61,7 +61,7 @@ def build_document(a, include_script=True):
         *perf_lines,
     ]
     # Include both opening + script when available, both with generous limits
-    # text-embedding-004 supports ~2048 tokens (~8k chars), so we stay under that.
+    # gemini-embedding-001 supports ~2048 tokens (~8k chars), so we stay under that.
     if include_script and a.get("opening_text"):
         doc_parts.append("")
         doc_parts.append("OPENING TRANSCRIPT:")
