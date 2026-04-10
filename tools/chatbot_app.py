@@ -35,6 +35,28 @@ SYSTEM_PROMPT = """You are a senior creative director and script writer for Pock
 You have deep domain expertise in our genres: werewolf, romance, fantasy, revenge, billionaire, and supernatural.
 
 ====================================================================
+SHOW NAMES — ALWAYS USE FULL NAMES IN OUTPUT
+====================================================================
+
+When the user says an abbreviation, you MUST know the full show name and use it in your output:
+
+TAB = The Alpha's Bride (our biggest IP — 2,094 ads tested, most sub-$2 winners)
+  Sub-arcs: BTS, CBF (Caught Between Fangs), FITP (Fire in the Palace), ROF (Rage of Fate),
+  Second Chance Luna, Magic Mirror, Damon's Dream, Broken Necklace, Rogue Witch, Fate Never Forgets
+TOLR = Twists of Love & Revenge (136 ads, strong growth performer)
+WBM / WOBM = Wolves of Blood Moon (99 ads)
+  Sub-arcs: ZOO Princess, Lunaris Rush, Magic Well, The Dream Fattened
+AQB = A Queen Betrayed (also called "Queen Betrayed")
+  Sub-arcs: WMBYW, Constantine, Jerren, Pregnancy & Letters
+M3VW = My Three Vampire Wives
+TAM = The Alpha's Mark
+C&C = Crushed & Crowned
+BMA = Blood Moon Academy
+TDMB = The Devil's Mark Burns (often merged with TOLR)
+
+If a script name says "TAB - BTS+FITP 3.0", that means: The Alpha's Bride show, mixing Behind The Scenes and Fire in the Palace sub-arcs, version 3.
+
+====================================================================
 TERMINOLOGY — LEARN THIS BEFORE ANYTHING ELSE
 ====================================================================
 
@@ -264,6 +286,12 @@ def get_dataset_stats(_coll):
         key=lambda x: x[1],
     )[:15]
 
+    # IP volume breakdown
+    ip_volume = sorted(
+        [(ip, len(v)) for ip, v in by_ip.items()],
+        key=lambda x: -x[1],
+    )
+
     return {
         "total_tests": len(metas),
         "total_with_cpi": len(with_cpi),
@@ -271,6 +299,7 @@ def get_dataset_stats(_coll):
         "top_ctr": top_ctr,
         "scaled_winners": scaled[:25],
         "ip_leader": ip_leader,
+        "ip_volume": ip_volume,
         "writer_leader": writer_leader,
     }
 
@@ -304,6 +333,10 @@ def format_stats_block(stats):
     lines.append(f"\n--- BEST-PERFORMING IPs (avg CPI, n>=3 tests) ---")
     for ip, avg, n in stats["ip_leader"]:
         lines.append(f"  {ip}: avg ${avg:.2f} across {n} tests")
+
+    lines.append(f"\n--- IP VOLUME (total ads tested per show) ---")
+    for ip, n in stats.get("ip_volume", [])[:15]:
+        lines.append(f"  {ip}: {n} ads tested")
 
     lines.append(f"\n--- TOP WRITERS (avg CPI, n>=5 tests) ---")
     for w, avg, n in stats["writer_leader"]:
@@ -433,8 +466,28 @@ User query: {query}
 
 Return a JSON array of show_slugs that are directly relevant to the query (most specific match first). If the query doesn't mention or imply any specific show, return an empty array [].
 
+SHOW ALIAS TABLE (abbreviation → slug in our database → full show name):
+- TAB = any slug starting with "tab" → "The Alpha's Bride" (our #1 IP by volume, 2,094 ads)
+- TOLR = any slug starting with "tolr" → "Twists of Love & Revenge"
+- WBM / WOBM = any slug starting with "wbm" or "wobm" → "Wolves of Blood Moon"
+- AQB = any slug starting with "aqb" → "A Queen Betrayed"
+- M3VW = "new_m3vw" → "My Three Vampire Wives"
+- TAM = "tam_promo_2" → "The Alpha's Mark"
+- ROF = any slug containing "rof" → "Rage of Fate"
+- FITP = any slug containing "fitp" → "Fire in the Palace"
+- BTS = "bts_script_brief" → "Behind the Scenes" (production brief)
+- CBF = any slug containing "cbf" → "Caught Between Fangs"
+- "Crushed" / "C&C" = "crushed_crowned" → "Crushed & Crowned"
+- "Damon" / "Damon's Dream" = "damon_s_dream" → sub-arc of The Alpha's Bride
+- "Second Chance Luna" = "tab_second_chance_luna" → sub-arc of The Alpha's Bride
+- "Magic Mirror" = "magic_mirror" or "magic_mirror_2" → sub-arc of The Alpha's Bride
+- "Fate Never Forgets" = "fate_never_forgets" → sub-arc of The Alpha's Bride
+- "ZOO Princess" = "wbm_zoo_princess" → sub-arc of Wolves of Blood Moon
+- "Lunaris Rush" = "wbm_lunaris_rush" → sub-arc of Wolves of Blood Moon
+
 Rules:
-- Match on aliases: "M3VW" = my_three_vampire_wives, "TAB" = the_alpha_s_bride, "WBM"/"WOBM" = wolves_of_blood_moon, "AQB" = a_queen_betrayed, "TOLR" = twists_of_love_and_revenge, "TAM" = the_alpha_s_mark, "CBF" = blood_brotherhood, "ROF" = rage_of_fate, "FITP" = fire_in_the_palace, etc.
+- When user mentions ANY of these abbreviations or show names, return the matching slug(s).
+- TAB sub-arcs (Damon's Dream, Second Chance Luna, Magic Mirror, Broken Necklace, Rogue Witch, Fate Never Forgets) should return BOTH the sub-arc slug AND the parent TAB slugs if any exist.
 - If user asks about a genre (werewolf, romance) without naming a show, return [].
 - Max 3 slugs.
 
