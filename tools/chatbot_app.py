@@ -501,118 +501,159 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    /* Hide Streamlit chrome */
-    #MainMenu, footer, header[data-testid="stHeader"] {visibility: hidden;}
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
-    /* Tighten main container */
+    /* ── Global ── */
+    html, body, [class*="css"] {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+    }
+    #MainMenu, footer {visibility: hidden;}
+    header[data-testid="stHeader"] {
+        background: rgba(255,255,255,0.95);
+        backdrop-filter: blur(8px);
+        border-bottom: 1px solid #eee;
+    }
+
+    /* ── Main container ── */
     .block-container {
-        max-width: 860px;
-        padding-top: 1rem;
-        padding-bottom: 6rem;
+        max-width: 820px;
+        padding-top: 1.5rem;
+        padding-bottom: 5rem;
     }
 
-    /* Sidebar styling — ChatGPT-like dark panel */
+    /* ── Sidebar ── */
     [data-testid="stSidebar"] {
-        background-color: #171717;
-        border-right: 1px solid #2a2a2a;
+        background: #fafbfc;
+        border-right: 1px solid #e8e8e8;
     }
-    [data-testid="stSidebar"] * {
-        color: #ececec !important;
+    [data-testid="stSidebar"] h1,
+    [data-testid="stSidebar"] h2,
+    [data-testid="stSidebar"] h3,
+    [data-testid="stSidebar"] h4,
+    [data-testid="stSidebar"] h5,
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] span,
+    [data-testid="stSidebar"] label {
+        color: #1a1a2e !important;
     }
     [data-testid="stSidebar"] .stButton > button {
         width: 100%;
-        background: transparent;
-        border: 1px solid #3a3a3a;
-        color: #ececec;
+        background: #ffffff;
+        border: 1px solid #ddd;
+        color: #1a1a2e;
         text-align: left;
         padding: 0.5rem 0.75rem;
         border-radius: 8px;
-        font-size: 0.875rem;
+        font-size: 0.85rem;
+        font-family: 'Inter', sans-serif;
+        transition: all 0.15s ease;
     }
     [data-testid="stSidebar"] .stButton > button:hover {
-        background: #2a2a2a;
-        border-color: #4a4a4a;
+        background: #f0f0f5;
+        border-color: #bbb;
     }
 
-    /* New chat button — pill style */
+    /* New chat button accent */
     .new-chat-btn .stButton > button {
-        background: #ececec !important;
-        color: #171717 !important;
+        background: #6366f1 !important;
+        color: #ffffff !important;
         font-weight: 600 !important;
         border: none !important;
+        letter-spacing: 0.01em;
     }
     .new-chat-btn .stButton > button:hover {
-        background: #ffffff !important;
+        background: #4f46e5 !important;
     }
 
-    /* Chat messages — fix Streamlit default padding */
+    /* ── Chat messages ── */
     [data-testid="stChatMessage"] {
-        padding: 1rem 0 !important;
+        padding: 0.75rem 0 !important;
         background: transparent !important;
     }
     [data-testid="stChatMessageContent"] {
-        font-size: 0.95rem;
-        line-height: 1.6;
+        font-size: 0.925rem;
+        line-height: 1.7;
+        color: #1a1a2e;
+    }
+    [data-testid="stChatMessageContent"] p {
+        margin-bottom: 0.6rem;
     }
 
-    /* User message subtle background */
+    /* User messages — subtle card */
     [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) {
-        background: #f7f7f8 !important;
-        border-radius: 12px;
-        padding: 1rem !important;
+        background: #f4f4f8 !important;
+        border-radius: 14px;
+        padding: 0.9rem 1rem !important;
+        margin: 0.25rem 0;
     }
 
-    /* Suggestion chips */
-    .suggestion-card {
-        border: 1px solid #e5e5e5;
-        border-radius: 12px;
-        padding: 1rem;
-        margin-bottom: 0.5rem;
-        cursor: pointer;
-        transition: all 0.15s;
-        background: #fafafa;
+    /* ── Chat input ── */
+    [data-testid="stChatInput"] {
+        border-top: 1px solid #eaeaea;
     }
-    .suggestion-card:hover {
-        background: #f0f0f0;
-        border-color: #d0d0d0;
+    [data-testid="stChatInput"] textarea {
+        font-family: 'Inter', sans-serif !important;
+        font-size: 0.925rem !important;
+        color: #1a1a2e !important;
+        background: #ffffff !important;
+        border: 1.5px solid #ddd !important;
+        border-radius: 12px !important;
+        padding: 0.75rem 1rem !important;
     }
-    .suggestion-title {
-        font-weight: 600;
-        font-size: 0.9rem;
-        color: #1a1a1a;
-        margin-bottom: 0.25rem;
+    [data-testid="stChatInput"] textarea:focus {
+        border-color: #6366f1 !important;
+        box-shadow: 0 0 0 3px rgba(99,102,241,0.12) !important;
     }
-    .suggestion-desc {
-        font-size: 0.8rem;
-        color: #6a6a6a;
+    [data-testid="stChatInput"] textarea::placeholder {
+        color: #999 !important;
     }
 
-    /* Empty-state hero */
+    /* ── Empty state hero ── */
     .empty-hero {
         text-align: center;
-        padding: 3rem 1rem 2rem 1rem;
+        padding: 4rem 1rem 2.5rem 1rem;
     }
     .empty-hero h1 {
-        font-size: 2rem;
-        font-weight: 600;
-        margin-bottom: 0.25rem;
+        font-family: 'Inter', sans-serif;
+        font-size: 1.75rem;
+        font-weight: 700;
+        color: #1a1a2e;
+        margin-bottom: 0.4rem;
     }
     .empty-hero p {
-        color: #6a6a6a;
-        font-size: 1rem;
+        color: #888;
+        font-size: 0.95rem;
+        font-weight: 400;
     }
 
-    /* Chat input — float at bottom feel */
-    [data-testid="stChatInput"] {
-        background: #ffffff;
-        border-top: 1px solid #e5e5e5;
-    }
-
-    /* Smaller expanders */
+    /* ── Expanders (sources, debug) ── */
     .streamlit-expanderHeader {
-        font-size: 0.8rem !important;
-        color: #6a6a6a !important;
+        font-size: 0.82rem !important;
+        font-weight: 500 !important;
+        color: #666 !important;
     }
+    .streamlit-expanderContent {
+        font-size: 0.85rem;
+    }
+
+    /* ── Selectboxes / inputs in sidebar ── */
+    [data-testid="stSidebar"] [data-testid="stSelectbox"] label,
+    [data-testid="stSidebar"] [data-testid="stNumberInput"] label,
+    [data-testid="stSidebar"] [data-testid="stCheckbox"] label,
+    [data-testid="stSidebar"] [data-testid="stSlider"] label {
+        font-size: 0.82rem !important;
+        font-weight: 500 !important;
+        color: #555 !important;
+    }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #aaa; }
+
+    /* ── Dividers ── */
+    hr { border-color: #eaeaea !important; }
     </style>
     """,
     unsafe_allow_html=True,
