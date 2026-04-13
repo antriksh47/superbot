@@ -1018,159 +1018,293 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&display=swap');
 
-    /* ── Global ── */
-    html, body, [class*="css"] {
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
-    }
-    #MainMenu, footer {visibility: hidden;}
-    header[data-testid="stHeader"] {
-        background: rgba(255,255,255,0.95);
-        backdrop-filter: blur(8px);
-        border-bottom: 1px solid #eee;
-    }
+    /* ═══════════════════════════════════════════
+       ChatGPT-replica design system
+       Font: Inter (closest to Söhne)
+       Colors: exact ChatGPT palette
+       ═══════════════════════════════════════════ */
 
-    /* ── Main container ── */
+    /* ── Reset & global ── */
+    html, body, [class*="css"],
+    .stMarkdown, .stMarkdown p, .stMarkdown li, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3,
+    button, input, textarea, select, label, span {
+        font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif !important;
+    }
+    #MainMenu, footer { display: none !important; }
+    header[data-testid="stHeader"] { display: none !important; }
+
+    /* ── Main chat area ── */
+    .stApp { background: #ffffff; }
     .block-container {
-        max-width: 820px;
-        padding-top: 1.5rem;
-        padding-bottom: 5rem;
+        max-width: 48rem;
+        padding: 0 1rem 6rem 1rem !important;
+        margin: 0 auto;
     }
 
-    /* ── Sidebar ── */
+    /* ══════════════ SIDEBAR ══════════════ */
     [data-testid="stSidebar"] {
-        background: #fafbfc;
-        border-right: 1px solid #e8e8e8;
+        background-color: #202123 !important;
+        border-right: none !important;
     }
+    [data-testid="stSidebar"] > div:first-child {
+        padding-top: 0.75rem;
+    }
+    /* Sidebar text — light on dark */
     [data-testid="stSidebar"] h1,
     [data-testid="stSidebar"] h2,
     [data-testid="stSidebar"] h3,
     [data-testid="stSidebar"] h4,
     [data-testid="stSidebar"] h5,
     [data-testid="stSidebar"] p,
-    [data-testid="stSidebar"] span,
-    [data-testid="stSidebar"] label {
-        color: #1a1a2e !important;
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] .stMarkdown p,
+    [data-testid="stSidebar"] .stMarkdown span {
+        color: #ececf1 !important;
     }
+    [data-testid="stSidebar"] small,
+    [data-testid="stSidebar"] .stCaption,
+    [data-testid="stSidebar"] [data-testid="stCaptionContainer"] {
+        color: #8e8ea0 !important;
+    }
+
+    /* Sidebar buttons — chat history items */
     [data-testid="stSidebar"] .stButton > button {
+        background: transparent !important;
+        border: 1px solid transparent !important;
+        color: #ececf1 !important;
+        text-align: left !important;
+        padding: 0.5rem 0.75rem !important;
+        border-radius: 0.5rem !important;
+        font-size: 0.875rem !important;
+        font-weight: 400 !important;
+        transition: background 0.15s ease;
         width: 100%;
-        background: #ffffff;
-        border: 1px solid #ddd;
-        color: #1a1a2e;
-        text-align: left;
-        padding: 0.5rem 0.75rem;
-        border-radius: 8px;
-        font-size: 0.85rem;
-        font-family: 'Inter', sans-serif;
-        transition: all 0.15s ease;
     }
     [data-testid="stSidebar"] .stButton > button:hover {
-        background: #f0f0f5;
-        border-color: #bbb;
+        background: #2a2b32 !important;
     }
 
-    /* New chat button accent */
+    /* New chat button — bordered, ChatGPT style */
     .new-chat-btn .stButton > button {
-        background: #6366f1 !important;
-        color: #ffffff !important;
-        font-weight: 600 !important;
-        border: none !important;
-        letter-spacing: 0.01em;
+        background: transparent !important;
+        border: 1px solid #565869 !important;
+        color: #ececf1 !important;
+        font-weight: 500 !important;
+        border-radius: 0.5rem !important;
+        padding: 0.65rem 0.75rem !important;
     }
     .new-chat-btn .stButton > button:hover {
-        background: #4f46e5 !important;
+        background: #2a2b32 !important;
     }
 
-    /* ── Chat messages ── */
-    [data-testid="stChatMessage"] {
-        padding: 0.75rem 0 !important;
+    /* Sidebar divider */
+    [data-testid="stSidebar"] hr {
+        border-color: #353740 !important;
+        margin: 0.5rem 0 !important;
+    }
+
+    /* Sidebar expanders */
+    [data-testid="stSidebar"] .streamlit-expanderHeader {
+        color: #acacbe !important;
+        font-size: 0.8rem !important;
+        font-weight: 500 !important;
+    }
+    [data-testid="stSidebar"] .streamlit-expanderContent {
         background: transparent !important;
     }
+
+    /* Sidebar inputs — keep readable on dark bg */
+    [data-testid="stSidebar"] input,
+    [data-testid="stSidebar"] textarea,
+    [data-testid="stSidebar"] [data-baseweb="select"] {
+        background: #40414f !important;
+        color: #ececf1 !important;
+        border-color: #565869 !important;
+        border-radius: 0.375rem !important;
+    }
+    [data-testid="stSidebar"] [data-baseweb="select"] span {
+        color: #ececf1 !important;
+    }
+    [data-testid="stSidebar"] input::placeholder {
+        color: #8e8ea0 !important;
+    }
+
+    /* Sidebar checkboxes */
+    [data-testid="stSidebar"] [data-testid="stCheckbox"] label span {
+        color: #c5c5d2 !important;
+    }
+
+    /* ══════════════ CHAT MESSAGES ══════════════ */
+    [data-testid="stChatMessage"] {
+        background: transparent !important;
+        border: none !important;
+        padding: 1.5rem 0 !important;
+        max-width: 48rem;
+        margin: 0 auto;
+    }
     [data-testid="stChatMessageContent"] {
-        font-size: 0.925rem;
-        line-height: 1.7;
-        color: #1a1a2e;
+        font-size: 1rem !important;
+        line-height: 1.75 !important;
+        color: #353740 !important;
     }
     [data-testid="stChatMessageContent"] p {
-        margin-bottom: 0.6rem;
+        margin-bottom: 0.75rem;
+    }
+    [data-testid="stChatMessageContent"] li {
+        margin-bottom: 0.25rem;
+    }
+    [data-testid="stChatMessageContent"] code {
+        background: #f7f7f8;
+        padding: 0.15rem 0.4rem;
+        border-radius: 0.25rem;
+        font-size: 0.9rem;
+    }
+    [data-testid="stChatMessageContent"] pre {
+        background: #1e1e1e !important;
+        color: #d4d4d4 !important;
+        border-radius: 0.5rem;
+        padding: 1rem !important;
+        font-size: 0.875rem;
     }
 
-    /* User messages — subtle card */
+    /* User messages — gray band like ChatGPT */
     [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) {
-        background: #f4f4f8 !important;
-        border-radius: 14px;
-        padding: 0.9rem 1rem !important;
-        margin: 0.25rem 0;
+        background: #f7f7f8 !important;
+        border-radius: 0 !important;
+        padding: 1.5rem 1rem !important;
+        margin-left: -1rem;
+        margin-right: -1rem;
     }
 
-    /* ── Chat input ── */
+    /* Avatars */
+    [data-testid="stChatMessage"] [data-testid="chatAvatarIcon-assistant"] {
+        background: #10a37f !important;
+        color: white !important;
+    }
+    [data-testid="stChatMessage"] [data-testid="chatAvatarIcon-user"] {
+        background: #ab68ff !important;
+        color: white !important;
+    }
+
+    /* ══════════════ CHAT INPUT ══════════════ */
     [data-testid="stChatInput"] {
-        border-top: 1px solid #eaeaea;
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        background: white !important;
+        border-top: none !important;
+        padding: 0.75rem 1rem 1.25rem 1rem !important;
+        z-index: 999;
+    }
+    [data-testid="stChatInput"] > div {
+        max-width: 48rem;
+        margin: 0 auto;
     }
     [data-testid="stChatInput"] textarea {
         font-family: 'Inter', sans-serif !important;
-        font-size: 0.925rem !important;
-        color: #1a1a2e !important;
+        font-size: 1rem !important;
+        color: #353740 !important;
         background: #ffffff !important;
-        border: 1.5px solid #ddd !important;
-        border-radius: 12px !important;
-        padding: 0.75rem 1rem !important;
+        border: 1px solid #d9d9e3 !important;
+        border-radius: 1.5rem !important;
+        padding: 0.75rem 1.25rem !important;
+        box-shadow: 0 0 15px rgba(0,0,0,0.05) !important;
+        resize: none !important;
+        min-height: 52px !important;
+        max-height: 200px !important;
     }
     [data-testid="stChatInput"] textarea:focus {
-        border-color: #6366f1 !important;
-        box-shadow: 0 0 0 3px rgba(99,102,241,0.12) !important;
+        border-color: #10a37f !important;
+        box-shadow: 0 0 15px rgba(0,0,0,0.05), 0 0 0 2px rgba(16,163,127,0.15) !important;
+        outline: none !important;
     }
     [data-testid="stChatInput"] textarea::placeholder {
-        color: #999 !important;
+        color: #8e8ea0 !important;
+    }
+    /* Send button */
+    [data-testid="stChatInput"] button {
+        background: #10a37f !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 0.5rem !important;
+    }
+    [data-testid="stChatInput"] button:hover {
+        background: #0d8c6d !important;
+    }
+    [data-testid="stChatInput"] button:disabled {
+        background: #d9d9e3 !important;
     }
 
-    /* ── Empty state hero ── */
+    /* ══════════════ EMPTY STATE ══════════════ */
     .empty-hero {
         text-align: center;
-        padding: 4rem 1rem 2.5rem 1rem;
+        padding: 15vh 1rem 3rem 1rem;
     }
     .empty-hero h1 {
-        font-family: 'Inter', sans-serif;
-        font-size: 1.75rem;
+        font-size: 2rem;
         font-weight: 700;
-        color: #1a1a2e;
-        margin-bottom: 0.4rem;
+        color: #353740;
+        margin-bottom: 0.5rem;
+        letter-spacing: -0.02em;
     }
     .empty-hero p {
-        color: #888;
-        font-size: 0.95rem;
-        font-weight: 400;
+        color: #8e8ea0;
+        font-size: 1rem;
     }
 
-    /* ── Expanders (sources, debug) ── */
+    /* ══════════════ EXPANDERS ══════════════ */
     .streamlit-expanderHeader {
-        font-size: 0.82rem !important;
+        font-size: 0.8rem !important;
         font-weight: 500 !important;
-        color: #666 !important;
+        color: #8e8ea0 !important;
+        background: transparent !important;
     }
     .streamlit-expanderContent {
         font-size: 0.85rem;
+        color: #6e6e80;
+        background: #f7f7f8 !important;
+        border-radius: 0 0 0.5rem 0.5rem;
     }
 
-    /* ── Selectboxes / inputs in sidebar ── */
-    [data-testid="stSidebar"] [data-testid="stSelectbox"] label,
-    [data-testid="stSidebar"] [data-testid="stNumberInput"] label,
-    [data-testid="stSidebar"] [data-testid="stCheckbox"] label,
-    [data-testid="stSidebar"] [data-testid="stSlider"] label {
-        font-size: 0.82rem !important;
-        font-weight: 500 !important;
-        color: #555 !important;
-    }
-
-    /* ── Scrollbar ── */
-    ::-webkit-scrollbar { width: 6px; }
+    /* ══════════════ MISC ══════════════ */
+    /* Scrollbar — thin, subtle */
+    ::-webkit-scrollbar { width: 5px; }
     ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
-    ::-webkit-scrollbar-thumb:hover { background: #aaa; }
+    ::-webkit-scrollbar-thumb { background: #c5c5d2; border-radius: 5px; }
+    ::-webkit-scrollbar-thumb:hover { background: #8e8ea0; }
 
-    /* ── Dividers ── */
-    hr { border-color: #eaeaea !important; }
+    /* Spinner */
+    .stSpinner > div { color: #10a37f !important; }
+
+    /* Captions */
+    [data-testid="stCaptionContainer"] {
+        font-size: 0.8rem !important;
+        color: #8e8ea0 !important;
+    }
+
+    /* Number inputs in feedback row */
+    [data-testid="stNumberInput"] input {
+        font-size: 0.85rem !important;
+        padding: 0.3rem 0.5rem !important;
+        border-radius: 0.375rem !important;
+    }
+
+    /* Dividers */
+    hr {
+        border-color: #e5e5e5 !important;
+        margin: 0.75rem 0 !important;
+    }
+
+    /* File uploader */
+    [data-testid="stFileUploader"] label {
+        font-size: 0.85rem !important;
+    }
+
+    /* Hide Streamlit's default bottom padding that conflicts with fixed input */
+    .main .block-container { padding-bottom: 8rem !important; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -1232,7 +1366,7 @@ def start_new_chat(project_id=None):
 # ---------- sidebar ----------
 
 with st.sidebar:
-    st.markdown("### 🎬 Hook Lab")
+    st.markdown('<p style="font-size:1.1rem;font-weight:600;color:#ececf1;margin:0.5rem 0 1rem 0;">🎬 Hook Lab</p>', unsafe_allow_html=True)
 
     # ── Projects ──
     with st.expander("📁  Projects", expanded=True):
@@ -1269,7 +1403,7 @@ with st.sidebar:
     st.markdown('</div>', unsafe_allow_html=True)
 
     # ── Chat history (filtered by project) ──
-    st.markdown("##### Recent")
+    st.markdown('<p style="font-size:0.75rem;font-weight:500;color:#8e8ea0;text-transform:uppercase;letter-spacing:0.05em;margin:0.75rem 0 0.4rem 0;">Recent</p>', unsafe_allow_html=True)
     active_project = st.session_state.current_project_id
     filtered_chats = [
         (cid, chat) for cid, chat in st.session_state.chats.items()
@@ -1339,28 +1473,37 @@ with st.sidebar:
 current_chat = get_current_chat()
 
 if current_chat is None or not current_chat.get("messages"):
-    # Empty state — ChatGPT-like hero + suggestion chips
+    # Empty state
     st.markdown(
-        '<div class="empty-hero"><h1>What hook are we cracking today?</h1>'
-        '<p>Ask anything about past tests, generate new hooks, or rewrite a draft.</p></div>',
+        '<div class="empty-hero">'
+        '<h1>Hook Lab</h1>'
+        '<p>Data-backed ad script generation for Pocket FM</p>'
+        '</div>',
         unsafe_allow_html=True,
     )
 
     suggestions = [
-        ("🏆 Top performers", "Show me the 10 best-performing hooks across all shows and tell me what structural pattern they share."),
-        ("✍️  Generate hooks", "Give me 5 new hook variations for The Alpha's Bride targeting sub-$2.50 CPI. Mix data-backed and exploratory."),
-        ("🔍 Diagnose draft", "Here's my draft hook: [paste here]. What's wrong with it based on past tests, and how would you rewrite it?"),
-        ("📊 Pattern mining", "What do all our sub-$2.00 CPI hooks have in common in the first 3 seconds? Show structural DNA with examples."),
-        ("🎬 Show deep-dive", "Tell me the world, characters, and core conflict of My Three Vampire Wives, then propose 3 hook angles based on that."),
-        ("👤 Writer leaderboard", "Which writers consistently hit under $2.50 CPI? Show their patterns."),
+        ("🏆", "Top performers", "Show me the 10 best hooks and what makes them crack"),
+        ("✍️", "Write a Q1", "Write a 2-min opening script for The Alpha's Bride under $2.50 CPI"),
+        ("🔍", "Diagnose a draft", "Here's my draft hook: [paste]. What's wrong and how to fix it?"),
+        ("📊", "Pattern analysis", "What do all sub-$2.00 CPI hooks share in the first 3 seconds?"),
+        ("🎬", "Show deep-dive", "Break down My Three Vampire Wives — world, characters, best angles"),
+        ("👤", "Writer stats", "Which writers hit under $2.50 CPI consistently? Show their best work"),
     ]
 
     cols = st.columns(2)
-    for i, (title, prompt_text) in enumerate(suggestions):
+    for i, (icon, title, prompt_text) in enumerate(suggestions):
         with cols[i % 2]:
-            if st.button(f"**{title}**\n\n{prompt_text[:80]}…", key=f"sug_{i}", use_container_width=True):
+            st.markdown(
+                f'<div style="border:1px solid #d9d9e3;border-radius:0.75rem;padding:0.85rem 1rem;margin-bottom:0.5rem;cursor:pointer;transition:background 0.15s;">'
+                f'<div style="font-size:0.85rem;font-weight:600;color:#353740;margin-bottom:0.2rem;">{icon} {title}</div>'
+                f'<div style="font-size:0.8rem;color:#8e8ea0;line-height:1.4;">{prompt_text}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+            if st.button(f"Use this", key=f"sug_{i}", use_container_width=True):
                 if current_chat is None:
-                    start_new_chat()
+                    start_new_chat(project_id=st.session_state.current_project_id)
                     current_chat = get_current_chat()
                 st.session_state["pending_prompt"] = prompt_text
                 st.rerun()
