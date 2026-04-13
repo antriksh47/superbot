@@ -553,6 +553,184 @@ def run_tool_calling_loop(gclient, prompt, system_instruction, stats_block, max_
     return "".join(text_parts) if text_parts else "(Tool calling exceeded max rounds)", tool_log
 
 
+# ---------- two-pass generation ----------
+
+CRITIQUE_PROMPT = """You are a ruthless creative director reviewing a draft Q1 opening script.
+
+Evaluate the draft against these non-negotiable criteria. For each, score PASS or FAIL with a one-line reason:
+
+1. BEAT 1 — SHOCK HOOK: Is the first sentence under 15 words? Is it a visceral, specific, filmable image (not a question, not exposition)?
+2. BEAT 2 — TRAGIC BACKSTORY: Is the protagonist at her lowest status? Are the conditions specific and concrete?
+3. BEAT 3 — ESCALATING NAMED ABUSE: Are antagonists named individually? Do they commit specific cruelties? Is there embedded quotable dialogue? Are there 3+ escalations?
+4. BEAT 4 — IDENTITY REVEAL: Is there a supernatural power/identity moment? Is it mysterious, not over-explained?
+5. BEAT 5 — FATED MATE + CLIFFHANGER: Does it end with an unresolved encounter? Will the viewer NEED to know what happens next?
+6. WORD COUNT: Is it 430-550 words?
+7. PROTAGONIST: Is the lead female?
+8. VOICE: Is it first-person or intimate third-person with internal thoughts? Not distant literary prose?
+9. PACING: Does every beat move in 3-4 sentences max? No scene lingers?
+10. DIALOGUE: Is there embedded dialogue from antagonists that's cruel enough to screenshot?
+
+For each FAIL, write a specific rewrite instruction (not vague — tell the writer exactly what to change).
+
+End with: VERDICT: PASS (ready to test) or REWRITE NEEDED (with numbered fixes)."""
+
+
+def two_pass_generate(gclient, prompt, system_instruction, stats_block, progress_callback=None):
+    """
+    Two-pass generation:
+    1. Generate draft Q1 using tool calling
+    2. Self-critique against the 5-beat formula
+    3. If critique says REWRITE NEEDED, generate a revised version
+
+    Returns (final_text, draft_text, critique_text, tool_log).
+    """
+    # Pass 1: Draft
+    if progress_callback:
+        progress_callback("Pass 1: Generating draft…")
+    draft, tool_log = run_tool_calling_loop(gclient, prompt, system_instruction, stats_block)
+
+    # Pass 2: Critique
+    if progress_callback:
+        progress_callback("Pass 2: Self-critiquing draft…")
+    critique_input = f"DRAFT Q1 TO REVIEW:\n\n{draft}\n\nReview this draft against the criteria."
+    critique_resp = gclient.models.generate_content(
+        model=CHAT_MODEL,
+        contents=critique_input,
+        config=types.GenerateContentConfig(
+            system_instruction=CRITIQUE_PROMPT,
+            temperature=0.3,
+        ),
+    )
+    critique = critique_resp.text or "(no critique generated)"
+
+    # Check if rewrite needed
+    if "REWRITE NEEDED" in critique.upper():
+        if progress_callback:
+            progress_callback("Pass 3: Rewriting based on critique…")
+        rewrite_prompt = (
+            f"You wrote this draft Q1:\n\n{draft}\n\n"
+            f"Your creative director reviewed it and found these issues:\n\n{critique}\n\n"
+            f"Now rewrite the Q1 fixing every issue flagged as FAIL. Keep everything that passed. "
+            f"Return ONLY the revised Q1 script, nothing else."
+        )
+        rewrite_resp = gclient.models.generate_content(
+            model=CHAT_MODEL,
+            contents=rewrite_prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                temperature=1.0,
+            ),
+        )
+        final = rewrite_resp.text or draft
+        return final, draft, critique, tool_log
+    else:
+        return draft, draft, critique, tool_log
+
+
+# ---------- file extraction ----------
+
+def extract_file_text(uploaded_file):
+    """Extract text from an uploaded file. Returns (text, file_type)."""
+    name = uploaded_file.name.lower()
+    data = uploaded_file.read()
+
+    if name.endswith((".txt", ".md", ".csv", ".srt")):
+        return data.decode("utf-8", errors="ignore"), "text"
+
+    elif name.endswith((".docx",)):
+        try:
+            import docx
+            import io
+            doc = docx.Document(io.BytesIO(data))
+            return "\n".join(p.text for p in doc.paragraphs), "document"
+        except ImportError:
+            return "(python-docx not installed)", "error"
+
+    elif name.endswith((".pdf",)):
+        try:
+            from pypdf import PdfReader
+            import io
+            reader = PdfReader(io.BytesIO(data))
+            return "\n".join(p.extract_text() or "" for p in reader.pages), "document"
+        except ImportError:
+            return "(pypdf not installed)", "error"
+
+    elif name.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
+        import base64
+        b64 = base64.b64encode(data).decode()
+        return f"[Image: {uploaded_file.name}, {len(data)} bytes, base64 available]", "image"
+
+    elif name.endswith((".json",)):
+        return data.decode("utf-8", errors="ignore"), "json"
+
+    elif name.endswith((".xlsx", ".xls")):
+        try:
+            import pandas as pd
+            import io
+            df = pd.read_excel(io.BytesIO(data))
+            return df.to_csv(index=False), "spreadsheet"
+        except Exception as e:
+            return f"(failed to read Excel: {e})", "error"
+
+    else:
+        return data.decode("utf-8", errors="ignore")[:10000], "unknown"
+
+
+# ---------- feedback persistence ----------
+
+FEEDBACK_PATH = Path(".tmp/feedback.json")
+
+
+def load_feedback():
+    if FEEDBACK_PATH.exists():
+        try:
+            return json.loads(FEEDBACK_PATH.read_text())
+        except Exception:
+            pass
+    return []
+
+
+def save_feedback_entry(entry):
+    fb = load_feedback()
+    fb.append(entry)
+    FEEDBACK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    FEEDBACK_PATH.write_text(json.dumps(fb, indent=2, default=str))
+
+
+# ---------- project persistence ----------
+
+PROJECTS_DIR = Path(".tmp/projects")
+
+
+def load_projects():
+    if not PROJECTS_DIR.exists():
+        return {}
+    out = {}
+    for p in sorted(PROJECTS_DIR.glob("*.json"), reverse=True):
+        try:
+            data = json.loads(p.read_text())
+            out[p.stem] = data
+        except Exception:
+            pass
+    return out
+
+
+def save_project(project_id, project):
+    PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
+    (PROJECTS_DIR / f"{project_id}.json").write_text(json.dumps(project, default=str))
+
+
+def delete_project(project_id):
+    p = PROJECTS_DIR / f"{project_id}.json"
+    if p.exists():
+        p.unlink()
+
+
+def new_project_id():
+    import datetime
+    return datetime.datetime.now().strftime("%Y%m%d_%H%M%S_") + os.urandom(2).hex()
+
+
 # ---------- retrieval (RAG fallback) ----------
 
 def embed_query(gclient, text):
@@ -1010,16 +1188,25 @@ stats_block = format_stats_block(stats)
 
 if "chats" not in st.session_state:
     st.session_state.chats = load_chats()
+if "projects" not in st.session_state:
+    st.session_state.projects = load_projects()
 if "current_chat_id" not in st.session_state:
     st.session_state.current_chat_id = None
+if "current_project_id" not in st.session_state:
+    st.session_state.current_project_id = None
 if "settings" not in st.session_state:
     st.session_state.settings = {
-        "top_k": TOP_K,
-        "brief_k": BRIEF_TOP_K,
-        "multi_query": True,
-        "use_show_routing": True,
-        "forced_show": "",
+        "two_pass": True,
     }
+if "uploaded_context" not in st.session_state:
+    st.session_state.uploaded_context = []
+
+
+def get_current_project():
+    pid = st.session_state.current_project_id
+    if pid and pid in st.session_state.projects:
+        return st.session_state.projects[pid]
+    return None
 
 
 def get_current_chat():
@@ -1029,7 +1216,7 @@ def get_current_chat():
     return None
 
 
-def start_new_chat():
+def start_new_chat(project_id=None):
     cid = new_chat_id()
     st.session_state.current_chat_id = cid
     st.session_state.chats[cid] = {
@@ -1037,7 +1224,9 @@ def start_new_chat():
         "title": "New chat",
         "messages": [],
         "filters": {},
+        "project_id": project_id,
     }
+    st.session_state.uploaded_context = []
 
 
 # ---------- sidebar ----------
@@ -1045,17 +1234,51 @@ def start_new_chat():
 with st.sidebar:
     st.markdown("### 🎬 Hook Lab")
 
+    # ── Projects ──
+    with st.expander("📁  Projects", expanded=True):
+        # Create new project
+        cols_proj = st.columns([0.75, 0.25])
+        with cols_proj[0]:
+            new_proj_name = st.text_input("New project", placeholder="e.g. TAB Q1 Campaign", label_visibility="collapsed")
+        with cols_proj[1]:
+            if st.button("Create", key="create_proj", use_container_width=True) and new_proj_name.strip():
+                pid = new_project_id()
+                st.session_state.projects[pid] = {
+                    "id": pid,
+                    "name": new_proj_name.strip(),
+                    "chat_ids": [],
+                    "notes": "",
+                }
+                save_project(pid, st.session_state.projects[pid])
+                st.session_state.current_project_id = pid
+                st.rerun()
+
+        # Project list
+        cur_proj = get_current_project()
+        proj_names = ["All chats"] + [p["name"] for p in st.session_state.projects.values()]
+        proj_ids = [None] + list(st.session_state.projects.keys())
+        cur_idx = proj_ids.index(st.session_state.current_project_id) if st.session_state.current_project_id in proj_ids else 0
+        sel = st.selectbox("Active project", proj_names, index=cur_idx, label_visibility="collapsed")
+        st.session_state.current_project_id = proj_ids[proj_names.index(sel)]
+
+    # ── New chat button ──
     st.markdown('<div class="new-chat-btn">', unsafe_allow_html=True)
     if st.button("✏️  New chat", use_container_width=True, key="new_chat_btn"):
-        start_new_chat()
+        start_new_chat(project_id=st.session_state.current_project_id)
         st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
+    # ── Chat history (filtered by project) ──
     st.markdown("##### Recent")
-    if not st.session_state.chats:
+    active_project = st.session_state.current_project_id
+    filtered_chats = [
+        (cid, chat) for cid, chat in st.session_state.chats.items()
+        if active_project is None or chat.get("project_id") == active_project
+    ]
+    if not filtered_chats:
         st.caption("No chats yet.")
     else:
-        for cid, chat in list(st.session_state.chats.items())[:30]:
+        for cid, chat in filtered_chats[:30]:
             is_active = cid == st.session_state.current_chat_id
             label = ("● " if is_active else "") + (chat.get("title") or "Untitled")
             cols = st.columns([0.85, 0.15])
@@ -1073,53 +1296,42 @@ with st.sidebar:
 
     st.divider()
 
+    # ── Settings ──
     with st.expander("⚙️  Settings", expanded=False):
-        st.session_state.settings["top_k"] = st.slider(
-            "Past tests retrieved", 5, 60, st.session_state.settings["top_k"]
+        st.session_state.settings["two_pass"] = st.checkbox(
+            "Two-pass generation (draft → critique → rewrite)",
+            value=st.session_state.settings.get("two_pass", True),
         )
-        st.session_state.settings["brief_k"] = st.slider(
-            "Show-brief chunks", 0, 20, st.session_state.settings["brief_k"]
-        )
-        st.session_state.settings["multi_query"] = st.checkbox(
-            "Multi-angle retrieval", value=st.session_state.settings["multi_query"]
-        )
-        st.session_state.settings["use_show_routing"] = st.checkbox(
-            "Auto-detect show", value=st.session_state.settings["use_show_routing"]
-        )
-        if show_catalog:
-            forced_options = [""] + [s for s, _ in show_catalog]
-            st.session_state.settings["forced_show"] = st.selectbox(
-                "Force show",
-                forced_options,
-                index=forced_options.index(st.session_state.settings.get("forced_show") or "")
-                if (st.session_state.settings.get("forced_show") or "") in forced_options
-                else 0,
-            )
 
-    with st.expander("🔍  Filters", expanded=False):
-        genres = [""] + unique_values(coll, "genre")
-        ips = [""] + unique_values(coll, "ip")
-        styles = [""] + unique_values(coll, "style")
-        writers = [""] + unique_values(coll, "writer")
-        chat = get_current_chat() or {"filters": {}}
-        chat_filters = chat.get("filters", {})
-        chat_filters["genre"] = st.selectbox("Genre", genres, index=genres.index(chat_filters.get("genre", "")) if chat_filters.get("genre", "") in genres else 0)
-        chat_filters["ip"] = st.selectbox("IP", ips, index=ips.index(chat_filters.get("ip", "")) if chat_filters.get("ip", "") in ips else 0)
-        chat_filters["style"] = st.selectbox("Style", styles, index=styles.index(chat_filters.get("style", "")) if chat_filters.get("style", "") in styles else 0)
-        chat_filters["writer"] = st.selectbox("Writer", writers, index=writers.index(chat_filters.get("writer", "")) if chat_filters.get("writer", "") in writers else 0)
-        chat_filters["max_cpi"] = st.number_input("Max CPI ($)", min_value=0.0, value=float(chat_filters.get("max_cpi") or 0.0), step=0.25) or None
-        chat_filters["min_cpi"] = st.number_input("Min CPI ($)", min_value=0.0, value=float(chat_filters.get("min_cpi") or 0.0), step=0.25) or None
-        chat_filters["active_only"] = st.checkbox("Only scaled winners", value=bool(chat_filters.get("active_only", False)))
-        if chat:
-            chat["filters"] = chat_filters
+    # ── File upload ──
+    with st.expander("📎  Attach files", expanded=False):
+        uploaded = st.file_uploader(
+            "Upload docs, images, scripts",
+            accept_multiple_files=True,
+            type=["txt", "md", "csv", "json", "docx", "pdf", "xlsx", "png", "jpg", "jpeg", "gif", "webp", "srt"],
+            label_visibility="collapsed",
+        )
+        if uploaded:
+            new_context = []
+            for f in uploaded:
+                text, ftype = extract_file_text(f)
+                new_context.append({"name": f.name, "type": ftype, "text": text[:15000]})
+            st.session_state.uploaded_context = new_context
+            st.caption(f"{len(new_context)} file(s) attached")
+            for fc in new_context:
+                st.caption(f"  {fc['name']} ({fc['type']}, {len(fc['text']):,} chars)")
+        if st.button("Clear attachments", key="clear_attach"):
+            st.session_state.uploaded_context = []
+            st.rerun()
 
     st.divider()
     brief_count = briefs_coll.count() if briefs_coll is not None else 0
     st.caption(f"📚 {coll.count()} ad tests indexed")
     if brief_count:
         st.caption(f"🎬 {brief_count} brief chunks · {len(show_catalog)} shows")
-    else:
-        st.caption("⚠️  brief index building…")
+    fb_count = len(load_feedback())
+    if fb_count:
+        st.caption(f"📊 {fb_count} feedback entries logged")
 
 
 # ---------- main area ----------
@@ -1154,21 +1366,87 @@ if current_chat is None or not current_chat.get("messages"):
                 st.rerun()
 else:
     # Render conversation
-    for msg in current_chat["messages"]:
+    for msg_idx, msg in enumerate(current_chat["messages"]):
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
-            if msg.get("tool_log"):
-                with st.expander(f"🔧 Tools called ({len(msg['tool_log'])})", expanded=False):
-                    for tc in msg["tool_log"]:
-                        args_str = ", ".join(f"{k}={v!r}" for k, v in tc.get("args", {}).items())
-                        st.markdown(f"- `{tc['tool']}({args_str})`")
-            # Legacy support for old chat messages with sources/brief_hits
-            if msg.get("sources"):
-                with st.expander(f"📚 Ad sources ({len(msg['sources'])})", expanded=False):
-                    for h in msg["sources"]:
-                        m = h.get("meta", {})
-                        cpi = f"${m['cpi']:.2f}" if m.get("cpi", -1) >= 0 else "?"
-                        st.markdown(f"- **{m.get('ad_code','?')}** — CPI {cpi}")
+
+            if msg["role"] == "assistant":
+                # ── Tool log ──
+                if msg.get("tool_log"):
+                    with st.expander(f"🔧 Tools called ({len(msg['tool_log'])})", expanded=False):
+                        for tc in msg["tool_log"]:
+                            args_str = ", ".join(f"{k}={v!r}" for k, v in tc.get("args", {}).items())
+                            st.markdown(f"- `{tc['tool']}({args_str})`")
+
+                # ── Draft + critique (two-pass) ──
+                if msg.get("draft") and msg.get("critique"):
+                    with st.expander("📝 Draft + Critique (two-pass)", expanded=False):
+                        st.markdown("**Draft:**")
+                        st.markdown(msg["draft"][:2000])
+                        st.markdown("---")
+                        st.markdown("**Critique:**")
+                        st.markdown(msg["critique"][:2000])
+
+                # ── Feedback buttons ──
+                fb_key = f"fb_{current_chat['id']}_{msg_idx}"
+                existing_fb = msg.get("feedback")
+
+                if existing_fb:
+                    icon = "👍" if existing_fb.get("rating") == "up" else "👎"
+                    cpi_val = existing_fb.get("actual_cpi")
+                    st.caption(f"{icon} Feedback logged{f' — actual CPI: ${cpi_val}' if cpi_val else ''}")
+                else:
+                    fb_cols = st.columns([0.08, 0.08, 0.3, 0.15, 0.39])
+                    with fb_cols[0]:
+                        if st.button("👍", key=f"{fb_key}_up"):
+                            msg["feedback"] = {"rating": "up", "actual_cpi": None, "notes": ""}
+                            save_feedback_entry({
+                                "chat_id": current_chat["id"],
+                                "msg_idx": msg_idx,
+                                "rating": "up",
+                                "prompt": current_chat["messages"][msg_idx - 1]["content"] if msg_idx > 0 else "",
+                                "response_preview": msg["content"][:500],
+                            })
+                            save_chat(current_chat["id"], current_chat)
+                            st.rerun()
+                    with fb_cols[1]:
+                        if st.button("👎", key=f"{fb_key}_down"):
+                            msg["feedback"] = {"rating": "down", "actual_cpi": None, "notes": ""}
+                            save_feedback_entry({
+                                "chat_id": current_chat["id"],
+                                "msg_idx": msg_idx,
+                                "rating": "down",
+                                "prompt": current_chat["messages"][msg_idx - 1]["content"] if msg_idx > 0 else "",
+                                "response_preview": msg["content"][:500],
+                            })
+                            save_chat(current_chat["id"], current_chat)
+                            st.rerun()
+                    with fb_cols[2]:
+                        cpi_input = st.number_input(
+                            "Actual CPI", min_value=0.0, value=0.0, step=0.1,
+                            key=f"{fb_key}_cpi", label_visibility="collapsed",
+                        )
+                    with fb_cols[3]:
+                        if st.button("Log CPI", key=f"{fb_key}_logcpi") and cpi_input > 0:
+                            msg["feedback"] = {"rating": "logged", "actual_cpi": cpi_input, "notes": ""}
+                            save_feedback_entry({
+                                "chat_id": current_chat["id"],
+                                "msg_idx": msg_idx,
+                                "rating": "cpi_logged",
+                                "actual_cpi": cpi_input,
+                                "prompt": current_chat["messages"][msg_idx - 1]["content"] if msg_idx > 0 else "",
+                                "response_preview": msg["content"][:500],
+                            })
+                            save_chat(current_chat["id"], current_chat)
+                            st.rerun()
+
+                # Legacy support
+                if msg.get("sources"):
+                    with st.expander(f"📚 Ad sources ({len(msg['sources'])})", expanded=False):
+                        for h in msg["sources"]:
+                            m = h.get("meta", {})
+                            cpi = f"${m['cpi']:.2f}" if m.get("cpi", -1) >= 0 else "?"
+                            st.markdown(f"- **{m.get('ad_code','?')}** — CPI {cpi}")
 
 
 # ---------- chat input ----------
@@ -1190,32 +1468,81 @@ if prompt:
     with st.chat_message("assistant"):
         placeholder = st.empty()
         full_text = ""
+        draft_text = ""
+        critique_text = ""
         tool_log = []
 
+        # Build prompt with file context if any
+        full_prompt = prompt
+        if st.session_state.uploaded_context:
+            file_ctx = "\n\n".join(
+                f"[ATTACHED FILE: {fc['name']} ({fc['type']})]\n{fc['text']}"
+                for fc in st.session_state.uploaded_context
+            )
+            full_prompt = f"{file_ctx}\n\n{prompt}"
+
         try:
-            with st.spinner("Thinking + querying data…"):
-                full_text, tool_log = run_tool_calling_loop(
-                    gclient, prompt, SYSTEM_PROMPT, stats_block, max_rounds=4,
+            use_two_pass = st.session_state.settings.get("two_pass", True)
+
+            # Detect if this is a Q1/opening generation request (two-pass worthy)
+            generation_keywords = ["write", "generate", "create", "give me", "q1", "opening", "hook", "script", "draft"]
+            is_generation = any(kw in prompt.lower() for kw in generation_keywords)
+
+            if use_two_pass and is_generation:
+                status_placeholder = st.empty()
+                def update_status(msg):
+                    status_placeholder.caption(f"⏳ {msg}")
+
+                full_text, draft_text, critique_text, tool_log = two_pass_generate(
+                    gclient, full_prompt, SYSTEM_PROMPT, stats_block,
+                    progress_callback=update_status,
                 )
+                status_placeholder.empty()
+            else:
+                with st.spinner("Thinking + querying data…"):
+                    full_text, tool_log = run_tool_calling_loop(
+                        gclient, full_prompt, SYSTEM_PROMPT, stats_block, max_rounds=4,
+                    )
+
             placeholder.markdown(full_text)
         except Exception as e:
             full_text = f"⚠️ Generation failed: {e}"
             placeholder.error(full_text)
 
-        # Show tool calls for transparency
+        # Show tool calls
         if tool_log:
             with st.expander(f"🔧 Tools called ({len(tool_log)})", expanded=False):
                 for tc in tool_log:
                     args_str = ", ".join(f"{k}={v!r}" for k, v in tc["args"].items())
                     st.markdown(f"- `{tc['tool']}({args_str})`")
 
-    current_chat["messages"].append(
-        {
-            "role": "assistant",
-            "content": full_text,
-            "tool_log": tool_log,
-        }
-    )
+        # Show draft + critique if two-pass was used
+        if draft_text and critique_text and draft_text != full_text:
+            with st.expander("📝 Draft + Critique (two-pass)", expanded=False):
+                st.markdown("**Draft:**")
+                st.markdown(draft_text[:2000])
+                st.markdown("---")
+                st.markdown("**Critique:**")
+                st.markdown(critique_text[:2000])
+
+        # Show attached files
+        if st.session_state.uploaded_context:
+            with st.expander(f"📎 Files used ({len(st.session_state.uploaded_context)})", expanded=False):
+                for fc in st.session_state.uploaded_context:
+                    st.caption(f"{fc['name']} ({fc['type']}, {len(fc['text']):,} chars)")
+
+    msg_data = {
+        "role": "assistant",
+        "content": full_text,
+        "tool_log": tool_log,
+    }
+    if draft_text and draft_text != full_text:
+        msg_data["draft"] = draft_text
+        msg_data["critique"] = critique_text
+    if st.session_state.uploaded_context:
+        msg_data["files_used"] = [fc["name"] for fc in st.session_state.uploaded_context]
+
+    current_chat["messages"].append(msg_data)
     if current_chat.get("title") == "New chat":
         current_chat["title"] = title_from_first_message(current_chat["messages"])
     save_chat(current_chat["id"], current_chat)
