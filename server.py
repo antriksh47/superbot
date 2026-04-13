@@ -39,6 +39,96 @@ CHATS_DIR = Path(".tmp/chats")
 PROJECTS_DIR = Path(".tmp/projects")
 FEEDBACK_PATH = Path(".tmp/feedback.json")
 
+# ── GCS-backed persistence (for Cloud Run) ──
+GCS_BUCKET = os.getenv("GCS_BUCKET")  # e.g. "superbot-storage"
+_gcs_client = None
+_gcs_bucket = None
+
+def _get_gcs():
+    """Lazy-init GCS client. Returns bucket or None if not configured."""
+    global _gcs_client, _gcs_bucket
+    if not GCS_BUCKET:
+        return None
+    if _gcs_bucket is None:
+        try:
+            from google.cloud import storage as gcs_storage
+            _gcs_client = gcs_storage.Client()
+            _gcs_bucket = _gcs_client.bucket(GCS_BUCKET)
+        except Exception:
+            return None
+    return _gcs_bucket
+
+
+def store_json(path: str, data: dict):
+    """Write JSON to local file + GCS if configured."""
+    local = Path(path)
+    local.parent.mkdir(parents=True, exist_ok=True)
+    content = json.dumps(data, default=str)
+    local.write_text(content)
+    bucket = _get_gcs()
+    if bucket:
+        try:
+            bucket.blob(path).upload_from_string(content, content_type="application/json")
+        except Exception:
+            pass
+
+
+def load_json(path: str) -> dict | None:
+    """Read JSON from local file, falling back to GCS."""
+    local = Path(path)
+    if local.exists():
+        try:
+            return json.loads(local.read_text())
+        except Exception:
+            pass
+    bucket = _get_gcs()
+    if bucket:
+        try:
+            blob = bucket.blob(path)
+            if blob.exists():
+                content = blob.download_as_text()
+                # Cache locally
+                local.parent.mkdir(parents=True, exist_ok=True)
+                local.write_text(content)
+                return json.loads(content)
+        except Exception:
+            pass
+    return None
+
+
+def delete_json(path: str):
+    """Delete JSON from local file + GCS."""
+    local = Path(path)
+    if local.exists():
+        local.unlink()
+    bucket = _get_gcs()
+    if bucket:
+        try:
+            blob = bucket.blob(path)
+            if blob.exists():
+                blob.delete()
+        except Exception:
+            pass
+
+
+def list_json_keys(prefix: str) -> list[str]:
+    """List JSON file keys under a prefix. GCS first, then local fallback."""
+    keys = set()
+    bucket = _get_gcs()
+    if bucket:
+        try:
+            for blob in bucket.list_blobs(prefix=prefix):
+                if blob.name.endswith(".json"):
+                    keys.add(blob.name)
+        except Exception:
+            pass
+    # Also check local
+    local_dir = Path(prefix)
+    if local_dir.exists():
+        for p in local_dir.glob("*.json"):
+            keys.add(str(p))
+    return sorted(keys, reverse=True)
+
 # ── Load system prompt from chatbot_app.py ──
 # We import the SYSTEM_PROMPT constant
 sys.path.insert(0, str(Path(__file__).parent / "tools"))
@@ -575,12 +665,8 @@ async def chat(req: ChatRequest):
 
     # Save to chat history
     chat_id = req.chat_id or str(uuid.uuid4())
-    chat_path = CHATS_DIR / f"{chat_id}.json"
-    CHATS_DIR.mkdir(parents=True, exist_ok=True)
-    if chat_path.exists():
-        chat = json.loads(chat_path.read_text())
-    else:
-        chat = {"id": chat_id, "title": "", "messages": [], "project_id": req.project_id}
+    chat_key = f".tmp/chats/{chat_id}.json"
+    chat = load_json(chat_key) or {"id": chat_id, "title": "", "messages": [], "project_id": req.project_id}
     chat["messages"].append({"role": "user", "content": req.message})
     chat["messages"].append({
         "role": "assistant", "content": result["response"],
@@ -589,7 +675,7 @@ async def chat(req: ChatRequest):
     })
     if not chat["title"]:
         chat["title"] = req.message[:50]
-    chat_path.write_text(json.dumps(chat, default=str))
+    store_json(chat_key, chat)
 
     return {
         "chat_id": chat_id,
@@ -602,11 +688,12 @@ async def chat(req: ChatRequest):
 
 @app.get("/api/chats")
 async def list_chats(project_id: Optional[str] = None):
-    CHATS_DIR.mkdir(parents=True, exist_ok=True)
     chats = []
-    for p in sorted(CHATS_DIR.glob("*.json"), reverse=True):
+    for key in list_json_keys(".tmp/chats"):
         try:
-            c = json.loads(p.read_text())
+            c = load_json(key)
+            if not c:
+                continue
             if project_id and c.get("project_id") != project_id:
                 continue
             chats.append({"id": c["id"], "title": c.get("title", ""), "project_id": c.get("project_id"), "msg_count": len(c.get("messages", []))})
@@ -617,27 +704,26 @@ async def list_chats(project_id: Optional[str] = None):
 
 @app.get("/api/chats/{chat_id}")
 async def get_chat(chat_id: str):
-    p = CHATS_DIR / f"{chat_id}.json"
-    if not p.exists():
+    c = load_json(f".tmp/chats/{chat_id}.json")
+    if not c:
         raise HTTPException(404, "Chat not found")
-    return json.loads(p.read_text())
+    return c
 
 
 @app.delete("/api/chats/{chat_id}")
 async def delete_chat(chat_id: str):
-    p = CHATS_DIR / f"{chat_id}.json"
-    if p.exists():
-        p.unlink()
+    delete_json(f".tmp/chats/{chat_id}.json")
     return {"ok": True}
 
 
 @app.get("/api/projects")
 async def list_projects():
-    PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
     projects = []
-    for p in sorted(PROJECTS_DIR.glob("*.json"), reverse=True):
+    for key in list_json_keys(".tmp/projects"):
         try:
-            projects.append(json.loads(p.read_text()))
+            p = load_json(key)
+            if p:
+                projects.append(p)
         except Exception:
             pass
     return projects
@@ -647,26 +733,20 @@ async def list_projects():
 async def create_project(req: ProjectRequest):
     pid = datetime.now().strftime("%Y%m%d_%H%M%S_") + os.urandom(2).hex()
     proj = {"id": pid, "name": req.name}
-    PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
-    (PROJECTS_DIR / f"{pid}.json").write_text(json.dumps(proj))
+    store_json(f".tmp/projects/{pid}.json", proj)
     return proj
 
 
 @app.post("/api/feedback")
 async def submit_feedback(req: FeedbackRequest):
-    fb = []
-    if FEEDBACK_PATH.exists():
-        try:
-            fb = json.loads(FEEDBACK_PATH.read_text())
-        except Exception:
-            pass
+    fb_key = ".tmp/feedback.json"
+    fb = load_json(fb_key) or []
     fb.append({
         "chat_id": req.chat_id, "msg_idx": req.msg_idx,
         "rating": req.rating, "actual_cpi": req.actual_cpi,
         "timestamp": datetime.now().isoformat(),
     })
-    FEEDBACK_PATH.parent.mkdir(parents=True, exist_ok=True)
-    FEEDBACK_PATH.write_text(json.dumps(fb, indent=2))
+    store_json(fb_key, fb)
     return {"ok": True}
 
 
@@ -814,12 +894,8 @@ async def chat_stream(req: ChatRequest):
 
             # Save chat
             chat_id = req.chat_id or str(uuid.uuid4())
-            chat_path = CHATS_DIR / f"{chat_id}.json"
-            CHATS_DIR.mkdir(parents=True, exist_ok=True)
-            if chat_path.exists():
-                chat_data = json.loads(chat_path.read_text())
-            else:
-                chat_data = {"id": chat_id, "title": "", "messages": [], "project_id": req.project_id}
+            chat_key = f".tmp/chats/{chat_id}.json"
+            chat_data = load_json(chat_key) or {"id": chat_id, "title": "", "messages": [], "project_id": req.project_id}
             chat_data["messages"].append({"role": "user", "content": req.message})
             chat_data["messages"].append({
                 "role": "assistant", "content": final,
@@ -829,7 +905,7 @@ async def chat_stream(req: ChatRequest):
             })
             if not chat_data["title"]:
                 chat_data["title"] = req.message[:50]
-            chat_path.write_text(json.dumps(chat_data, default=str))
+            store_json(chat_key, chat_data)
 
             yield f"data: {json.dumps({'done': True, 'chat_id': chat_id, 'response': final, 'draft': draft if critique else None, 'critique': critique, 'tool_log': tool_log})}\n\n"
 
@@ -841,9 +917,7 @@ async def chat_stream(req: ChatRequest):
 
 @app.delete("/api/projects/{project_id}")
 async def delete_project_endpoint(project_id: str):
-    p = PROJECTS_DIR / f"{project_id}.json"
-    if p.exists():
-        p.unlink()
+    delete_json(f".tmp/projects/{project_id}.json")
     return {"ok": True}
 
 

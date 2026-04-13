@@ -25,6 +25,9 @@ fastapi>=0.104.0
 uvicorn>=0.24.0
 python-multipart>=0.0.6
 
+# Cloud storage (chat persistence on Cloud Run)
+google-cloud-storage>=2.14.0
+
 # Chatbot UI (legacy, kept for local dev)
 streamlit==1.37.1
 
