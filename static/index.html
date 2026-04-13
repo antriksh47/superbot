@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Superbot — Pocket FM</title>
-<link rel="icon" href="https://play-lh.googleusercontent.com/a0zmSKJvRnIRHxWqfNFVPCFqkGMEzVN_0GgZEDMx4y8GYqJJnWT1sEeAJwMHFuAN_g=w480-h960-rw" type="image/png">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -98,6 +98,20 @@ html,body{height:100%;overflow:hidden;font-family:'Inter',system-ui,sans-serif;b
 .sug b{font-size:13px;display:block;margin-bottom:2px}
 .sug span{font-size:11px;color:var(--txm);line-height:1.4}
 
+/* MODE SELECTOR */
+.mode-bar{display:flex;gap:4px;flex-wrap:wrap;padding:0 4px;margin-bottom:2px}
+.mode-btn{background:var(--ubg);border:1px solid var(--ib);border-radius:16px;padding:4px 12px;font:500 11px 'Inter',sans-serif;color:var(--txm);cursor:pointer;transition:all .15s;white-space:nowrap}
+.mode-btn:hover{background:var(--sb-h);color:var(--tx)}
+.mode-btn.active{background:var(--ac);border-color:var(--ac);color:#fff}
+
+/* MARKDOWN TABLES */
+.mc table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13px}
+.mc thead{background:var(--cbg)}
+.mc th{text-align:left;padding:8px 10px;font-weight:600;border-bottom:2px solid var(--ib);white-space:nowrap}
+.mc td{padding:6px 10px;border-bottom:1px solid rgba(255,255,255,.06)}
+.mc tr:hover td{background:rgba(255,255,255,.03)}
+.mc table code{font-size:12px}
+
 /* INPUT */
 .ibar{position:absolute;bottom:0;left:0;right:0;padding:12px 24px 20px;background:linear-gradient(transparent,var(--bg) 30%)}
 .ibar-in{max-width:768px;margin:0 auto;display:flex;flex-direction:column;gap:6px}
@@ -133,6 +147,18 @@ html,body{height:100%;overflow:hidden;font-family:'Inter',system-ui,sans-serif;b
 /* Scrollbar */
 ::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:0}::-webkit-scrollbar-thumb{background:#444;border-radius:3px}
 
+/* LOGIN */
+.login-overlay{position:fixed;inset:0;z-index:999;background:var(--bg);display:flex;align-items:center;justify-content:center}
+.login-box{background:var(--ubg);border:1px solid var(--ib);border-radius:16px;padding:40px 36px;max-width:380px;width:90%;text-align:center}
+.login-box img{width:56px;height:56px;border-radius:14px;margin-bottom:16px}
+.login-box h2{font-size:20px;font-weight:700;margin-bottom:4px}
+.login-box p{color:var(--txm);font-size:13px;margin-bottom:24px}
+.login-box input{width:100%;background:var(--ibg);border:1px solid var(--ib);border-radius:10px;color:var(--tx);font:400 14px 'Inter',sans-serif;padding:12px 14px;outline:0;margin-bottom:12px;transition:border-color .2s}
+.login-box input:focus{border-color:var(--ac)}
+.login-box button{width:100%;padding:12px;background:var(--ac);border:0;border-radius:10px;color:#fff;font:600 14px 'Inter',sans-serif;cursor:pointer;transition:background .15s}
+.login-box button:hover{background:var(--ac2)}
+.login-err{color:#ef4444;font-size:12px;margin-bottom:8px;min-height:18px}
+
 @media(max-width:768px){
   .sidebar{position:absolute;z-index:100;transform:translateX(-100%);transition:transform .2s}
   .sidebar.open{transform:translateX(0)}
@@ -142,10 +168,21 @@ html,body{height:100%;overflow:hidden;font-family:'Inter',system-ui,sans-serif;b
 </style>
 </head>
 <body>
-<div class="app">
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-box">
+    <span style="font-size:48px">🤖</span>
+    <h2>Superbot</h2>
+    <p>Sign in to continue</p>
+    <div class="login-err" id="loginErr"></div>
+    <input type="text" id="loginUser" placeholder="Username" onkeydown="if(event.key==='Enter')document.getElementById('loginPass').focus()">
+    <input type="password" id="loginPass" placeholder="Password" onkeydown="if(event.key==='Enter')doLogin()">
+    <button onclick="doLogin()">Sign in</button>
+  </div>
+</div>
+<div class="app" id="appMain" style="display:none">
 <aside class="sidebar" id="sidebar">
   <div class="sb-head">
-    <img src="https://play-lh.googleusercontent.com/a0zmSKJvRnIRHxWqfNFVPCFqkGMEzVN_0GgZEDMx4y8GYqJJnWT1sEeAJwMHFuAN_g=w480-h960-rw" alt="">
+    <span style="font-size:24px">🤖</span>
     <h1>Superbot</h1>
   </div>
   <button class="btn-new" onclick="newChat()">
@@ -165,6 +202,12 @@ html,body{height:100%;overflow:hidden;font-family:'Inter',system-ui,sans-serif;b
   <div class="sb-label">Settings</div>
   <div class="sb-panel">
     <label><input type="checkbox" id="twoPassToggle" checked> Two-pass (draft + critique)</label>
+    <label style="margin-top:8px;flex-direction:column;align-items:flex-start;gap:4px">
+      <span>Show filter</span>
+      <select id="showFilter" style="width:100%;background:var(--ubg);border:1px solid var(--ib);border-radius:6px;color:var(--sb-t);font:400 12px 'Inter',sans-serif;padding:6px 8px;outline:0">
+        <option value="">All shows</option>
+      </select>
+    </label>
   </div>
 
   <div class="sb-foot" id="sbFoot">Loading...</div>
@@ -174,6 +217,15 @@ html,body{height:100%;overflow:hidden;font-family:'Inter',system-ui,sans-serif;b
   <div class="msgs" id="msgs"></div>
   <div class="ibar">
     <div class="ibar-in">
+      <div class="mode-bar" id="modeBar">
+        <button class="mode-btn active" data-mode="" onclick="setMode(this,'')">Auto</button>
+        <button class="mode-btn" data-mode="opening" onclick="setMode(this,'opening')">Opening</button>
+        <button class="mode-btn" data-mode="q1" onclick="setMode(this,'q1')">Q1 Script</button>
+        <button class="mode-btn" data-mode="base" onclick="setMode(this,'base')">Base Script</button>
+        <button class="mode-btn" data-mode="merge" onclick="setMode(this,'merge')">Script Merge</button>
+        <button class="mode-btn" data-mode="cliffhanger" onclick="setMode(this,'cliffhanger')">Cliffhanger</button>
+        <button class="mode-btn" data-mode="super" onclick="setMode(this,'super')">SuperAgent</button>
+      </div>
       <div class="file-ind" id="fileInd"></div>
       <div class="ibar-row">
         <button class="btn-attach" onclick="document.getElementById('fileInput').click()" title="Attach files">
@@ -194,15 +246,51 @@ html,body{height:100%;overflow:hidden;font-family:'Inter',system-ui,sans-serif;b
 </div>
 
 <script>
-let chatId=null,busy=false,files=[];
-const PFM='https://play-lh.googleusercontent.com/a0zmSKJvRnIRHxWqfNFVPCFqkGMEzVN_0GgZEDMx4y8GYqJJnWT1sEeAJwMHFuAN_g=w480-h960-rw';
+let chatId=null,busy=false,files=[],currentMode='';
+const PFM='🤖';
 const $=s=>document.getElementById(s);
 const api=(p,o={})=>fetch(p,{headers:{'Content-Type':'application/json'},...o}).then(r=>r.json());
 
+// ── Mode selector ──
+function setMode(btn,mode){
+  currentMode=mode;
+  document.querySelectorAll('.mode-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+// ── Login ──
+function checkAuth(){
+  if(sessionStorage.getItem('sb_auth')){
+    $('loginOverlay').style.display='none';
+    $('appMain').style.display='flex';
+    return true;
+  }
+  return false;
+}
+async function doLogin(){
+  const user=$('loginUser').value.trim(),pass=$('loginPass').value;
+  $('loginErr').textContent='';
+  if(!user||!pass){$('loginErr').textContent='Enter username and password';return}
+  try{
+    const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:user,password:pass})});
+    const d=await r.json();
+    if(d.ok){sessionStorage.setItem('sb_auth',user);checkAuth();init()}
+    else{$('loginErr').textContent=d.error||'Invalid credentials'}
+  }catch(e){$('loginErr').textContent='Connection error'}
+}
+if(checkAuth()){/* already logged in */}
+
 // ── Init ──
-async function init(){loadProjects();loadChats();loadStats();showEmpty()}
+async function init(){loadProjects();loadChats();loadStats();loadShows();showEmpty()}
 async function loadStats(){
   try{const s=await api('/api/stats');$('sbFoot').innerHTML=`${s.total_assets} ads &middot; ${s.total_briefs} briefs &middot; ${s.total_shows} shows`}catch(e){}
+}
+async function loadShows(){
+  try{
+    const shows=await api('/api/shows');const sel=$('showFilter');
+    sel.innerHTML='<option value="">All shows</option>';
+    shows.forEach(s=>{const o=document.createElement('option');o.value=s.slug;o.textContent=s.name||s.slug;sel.appendChild(o)});
+  }catch(e){}
 }
 async function loadProjects(){
   try{
@@ -236,7 +324,7 @@ function newChat(){chatId=null;files=[];renderFiles();showEmpty();loadChats()}
 function showEmpty(){
   $('msgs').innerHTML=`
   <div class="empty">
-    <img src="${PFM}" alt="">
+    <span style="font-size:48px">${PFM}</span>
     <h2>Superbot</h2>
     <p>Data-backed ad script generation for Pocket FM</p>
     <div class="sugs">
@@ -289,10 +377,12 @@ async function send(){
   // Build file context
   let fileCtx='';
   if(files.length){fileCtx=files.map(f=>`[ATTACHED FILE: ${f.name} (${f.type})]\n${f.text}`).join('\n\n')}
+  const showVal=$('showFilter').value;
+  if(showVal){fileCtx=`[SHOW FILTER: Focus on show "${showVal}"]\n\n`+(fileCtx||'')}
 
   // Loading with stage indicator
   const ld=document.createElement('div');ld.className='msg';ld.id='ldMsg';
-  ld.innerHTML=`<div class="msg-in"><div class="av av-a"><img src="${PFM}" alt=""></div><div class="mc"><div class="stage" id="stageText"><div class="dot"></div> Thinking...</div><div class="ld"><span></span><span></span><span></span></div></div></div>`;
+  ld.innerHTML=`<div class="msg-in"><div class="av av-a">${PFM}</div><div class="mc"><div class="stage" id="stageText"><div class="dot"></div> Thinking...</div><div class="ld"><span></span><span></span><span></span></div></div></div>`;
   $('msgs').appendChild(ld);scroll();
 
   const twoPass=$('twoPassToggle').checked;
@@ -302,7 +392,7 @@ async function send(){
     // Use SSE for stage updates
     const resp=await fetch('/api/chat/stream',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({message:txt,chat_id:chatId,project_id:projId,two_pass:twoPass,file_context:fileCtx||null})
+      body:JSON.stringify({message:txt,chat_id:chatId,project_id:projId,two_pass:twoPass,file_context:fileCtx||null,mode:currentMode||null})
     });
     const reader=resp.body.getReader();const dec=new TextDecoder();let buf='';
     while(true){
@@ -331,7 +421,7 @@ function use(t){$('inp').value=t;ar($('inp'));ts();send()}
 // ── Messages ──
 function addMsg(role,content,tlog,draft,critique){
   const d=document.createElement('div');d.className='msg';
-  const av=role==='user'?'<div class="av av-u">U</div>':`<div class="av av-a"><img src="${PFM}" alt=""></div>`;
+  const av=role==='user'?'<div class="av av-u">U</div>':`<div class="av av-a">${PFM}</div>`;
   let extra='';
   if(tlog&&tlog.length){
     const items=tlog.map(t=>`<code>${t.tool}(${Object.entries(t.args||{}).map(([k,v])=>k+'='+JSON.stringify(v)).join(', ')})</code>`).join('<br>');
@@ -364,8 +454,29 @@ async function logCpi(btn){
 function ar(el){el.style.height='auto';el.style.height=Math.min(el.scrollHeight,200)+'px'}
 function ts(){const b=$('sendBtn'),has=$('inp').value.trim();b.disabled=!has;b.className=has?'btn-send go':'btn-send'}
 function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML}
+function mdTable(block){
+  // Parse a markdown table block into HTML
+  const rows=block.trim().split('\n').filter(r=>r.trim());
+  if(rows.length<2)return block;
+  const parse=r=>r.replace(/^\|/,'').replace(/\|$/,'').split('|').map(c=>c.trim());
+  const hdr=parse(rows[0]);
+  // Skip separator row (row[1] is dashes)
+  const body=rows.slice(2).map(parse);
+  let html='<table><thead><tr>'+hdr.map(h=>`<th>${h}</th>`).join('')+'</tr></thead><tbody>';
+  for(const row of body){html+='<tr>'+row.map(c=>`<td>${c}</td>`).join('')+'</tr>'}
+  html+='</tbody></table>';
+  return html;
+}
 function md(t){
-  if(!t)return'';let h=esc(t);
+  if(!t)return'';
+  // Extract tables before escaping
+  const tables=[];
+  t=t.replace(/((?:^\|.+\|[ ]*\n){2,}(?:^\|.+\|[ ]*$\n?)*)/gm,(m)=>{
+    tables.push(m);return`__TBL${tables.length-1}__`;
+  });
+  let h=esc(t);
+  // Restore tables (rendered as HTML)
+  for(let i=0;i<tables.length;i++){h=h.replace(`__TBL${i}__`,mdTable(tables[i]))}
   h=h.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
   h=h.replace(/`([^`]+)`/g,'<code>$1</code>');
   h=h.replace(/```[\w]*\n([\s\S]*?)```/g,'<pre>$1</pre>');
@@ -379,7 +490,7 @@ function md(t){
   h=h.replace(/(<li>.*?<\/li>)+/gs,m=>`<ul>${m}</ul>`);
   return h;
 }
-init();
+if(checkAuth())init();
 </script>
 </body>
 </html>

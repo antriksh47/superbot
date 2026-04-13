@@ -23,6 +23,7 @@ google-genai==0.3.0
 # Web server
 fastapi>=0.104.0
 uvicorn>=0.24.0
+python-multipart>=0.0.6
 
 # Chatbot UI (legacy, kept for local dev)
 streamlit==1.37.1

@@ -59,7 +59,36 @@ def _extract_system_prompt():
     end = src.find('"""', start)
     return src[start:end]
 
-SYSTEM_PROMPT = _extract_system_prompt()
+_BASE_SYSTEM_PROMPT = _extract_system_prompt()
+
+# Add table formatting + CPI formula knowledge
+SYSTEM_PROMPT = _BASE_SYSTEM_PROMPT + """
+
+====================================================================
+RESPONSE FORMATTING
+====================================================================
+
+When the user asks for data, analytics, comparisons, or lists — ALWAYS use MARKDOWN TABLES.
+- Use | Column | Column | format with header separators
+- Sort by the most relevant metric (usually CPI ascending)
+- Include ad_code, show, writer, CPI, CTR*CTI, and any other relevant columns
+- Keep tables clean and scannable
+
+When the user asks for analysis or recommendations (not scripts), respond with structured data — NOT a script critique.
+
+====================================================================
+CPI FORMULA — CORE METRIC
+====================================================================
+
+CPI = CPM / (CTR × CTI)
+
+- CPM = Cost Per Mille (cost per 1,000 impressions) — we want this LOW
+- CTR = Click-Through Rate — we want this HIGH (the ad must make people CLICK)
+- CTI = Click-To-Install rate — we want this HIGH (the landing page must convert)
+- CTR × CTI = the conversion chain. This is what the CREATIVE controls.
+- A great opening/hook drives CTR. A great cliffhanger drives CTI.
+- Synergy between opening and cliffhanger = maximum CTR × CTI = lowest CPI.
+"""
 
 # ── Gemini client ──
 api_key = os.getenv("GOOGLE_API_KEY")
@@ -108,6 +137,239 @@ def compute_stats():
     return "\n".join(lines)
 
 STATS_BLOCK = compute_stats()
+
+# ── Mode-specific instructions ──
+
+MODE_INSTRUCTIONS = {
+    "opening": """
+====================================================================
+MODE: OPENING (180-second hook content)
+====================================================================
+
+You are writing an OPENING — a ~180-second (roughly 650-800 words) piece of content designed to instantly hook viewers within the first 3 seconds and keep them watching.
+
+KEY PRINCIPLES:
+- The opening may or may NOT be related to the actual story. We often show something bizarre/extreme to grab attention, then merge seamlessly into the base story.
+- Think of it as a "cold open" — something so outrageous the viewer cannot scroll past.
+- CPI = CPM / (CTR × CTI). We need CPM low and CTR × CTI high. The opening's job is to MAXIMIZE CTR (click-through rate).
+- The opening must be visceral, specific, filmable — not abstract or literary.
+
+STRUCTURE:
+1. HOOK (0-3 seconds): The most shocking, bizarre, or emotionally extreme image/line. Under 15 words.
+2. ESCALATION (3-30 seconds): Build on the hook with escalating stakes. Specific, named characters. Quotable cruel dialogue.
+3. TENSION PEAK (30-90 seconds): Maximum emotional intensity. The viewer is hooked — they MUST know what happens.
+4. MERGE POINT (90-120 seconds): This is where the opening transitions into the base story. The merge must feel SEAMLESS — not jarring.
+5. STORY ENTRY (120-180 seconds): We're now in the actual show's world. Characters, conflict, and stakes are established.
+
+IMPORTANT — MERGE POINT:
+- Always clearly mark where the merge happens: **[MERGE POINT — transition to base story]**
+- Explain HOW this bizarre opening connects to the real story
+- The emotional thread must carry through — if the opening is about betrayal, the story entry should also involve betrayal
+- The viewer should NOT feel tricked — the merge should feel like "oh, THIS is why they showed me that"
+
+CLIFFHANGER ALIGNMENT:
+- The opening's emotional promise must align with the cliffhanger at the end of the full script
+- If you open with betrayal, the cliffhanger should pay off or escalate that betrayal
+- Synergy between opening hook and ending cliffhanger = higher CTI (click-to-install)
+
+OUTPUT: Provide the full opening script with the merge point clearly marked. After the script, add a brief note explaining:
+- Why this opening works (what proven pattern it mirrors)
+- Where exactly the merge point is and why it works there
+- How it aligns with the recommended cliffhanger
+""",
+
+    "q1": """
+====================================================================
+MODE: Q1 SCRIPT (First Quarter — ~2 minutes, 450-530 words)
+====================================================================
+
+You are writing a Q1 SCRIPT — the first quarter of an ad script (~450-530 words, ~2 minutes of narration).
+
+CPI = CPM / (CTR × CTI). The Q1's job is to build CONVICTION and CONNECTION with the female lead so strong that the viewer installs the app.
+
+KEY PRINCIPLES:
+- This introduces the main character and makes the viewer CARE about her
+- Every line must build emotional investment — if a line doesn't make the viewer feel something, cut it
+- The Q1 must be hooky AND fundamentally aligned with the show's actual story
+- Female protagonist MANDATORY — every sub-$2.50 winner centers a woman 18-35 audience can identify with
+
+THE 5-BEAT FORMULA (from analyzing every sub-$2.00 CPI asset):
+BEAT 1: SHOCK HOOK (1-2 sentences, under 15 words) — visceral, specific, filmable
+BEAT 2: TRAGIC BACKSTORY (3-5 sentences) — protagonist at absolute lowest status
+BEAT 3: ESCALATING NAMED ABUSE (5-8 sentences, longest beat) — named antagonists, specific cruelties, quotable dialogue, 3-4 escalations
+BEAT 4: SUPERNATURAL IDENTITY REVEAL (2-4 sentences) — power awakening, mysterious
+BEAT 5: FATED MATE ENCOUNTER + CLIFFHANGER (3-5 sentences) — unresolved tension, viewer MUST know what happens next
+
+CONVICTION + CONNECTION:
+- The viewer must feel the protagonist's pain as their OWN
+- Use first-person voice or deeply intimate third-person
+- Name every character — never "they" or "the man"
+- Every antagonist line should be cruel enough to screenshot
+- The cliffhanger must create an unbearable need to know what happens next
+""",
+
+    "base": """
+====================================================================
+MODE: BASE SCRIPT (Full standalone 8-12 minute script, ~5,500-6,000 words)
+====================================================================
+
+You are writing a FULL BASE SCRIPT — a standalone 8-12 minute ad script (~5,500-6,000 words).
+
+This is the complete script from Q1 through Q4 + CTA. Structure:
+- Q1 (2 min): Hook + character intro + conviction building (see Q1 formula)
+- Q2 (3 min): Deepen conflict, introduce love interest, raise stakes
+- Q3 (3 min): Climax — maximum danger/tension, power reveal, confrontation
+- Q4 (2 min): Resolution tease + massive cliffhanger + CTA
+
+CPI = CPM / (CTR × CTI). The full script's job is to maximize CTI — the viewer must be SO invested they install the app.
+
+CLIFFHANGER (final 30 seconds):
+- Must be the most emotionally intense moment in the entire script
+- Leave the viewer with an UNRESOLVED question they cannot ignore
+- Align with the hook — the emotional promise of the opening must pay off here
+- End with CTA: "To find out what happens next, listen to [SHOW NAME] — only on Pocket FM. Download free."
+""",
+
+    "merge": """
+====================================================================
+MODE: SCRIPT MERGE (Combining two scripts into one)
+====================================================================
+
+You are MERGING two scripts together. Before writing, you MUST ask clarifying questions if any of these are unclear:
+- Which scripts are being merged? (provide ad codes or paste the scripts)
+- What is the target length? (shorter combined version or longer combined version?)
+- Which opening should be used? (from script A, script B, or a new one?)
+- What is the primary show/IP?
+- Should the merge prioritize one script's story arc over the other?
+
+MERGE PRINCIPLES:
+- Identify the strongest elements from each script (best hook, best escalation, best cliffhanger)
+- The merge must feel like ONE coherent story, not two stories stitched together
+- Transition points between source material must be seamless
+- Maintain consistent voice, tense, and character names throughout
+- The merged cliffhanger should be the strongest ending from either source, or an even stronger combination
+
+OUTPUT: The merged script + a brief note explaining what you took from each source and why.
+""",
+
+    "cliffhanger": """
+====================================================================
+MODE: CLIFFHANGER RE-WRITE (Improve CTR × CTI)
+====================================================================
+
+You are rewriting the CLIFFHANGER (final 30-60 seconds) of an existing script to improve CTR × CTI.
+
+CPI = CPM / (CTR × CTI). The cliffhanger is the last thing the viewer sees before the CTA. It must create maximum unresolved tension — the viewer installs because they CANNOT not know what happens next.
+
+WHAT MAKES A KILLER CLIFFHANGER:
+1. UNRESOLVED THREAT: Someone is in immediate danger — the scene cuts before we know if they survive
+2. IDENTITY BOMB: A secret is about to be revealed — the scene cuts before we hear it
+3. IMPOSSIBLE CHOICE: The protagonist must choose between two devastating options — we never see the choice
+4. BETRAYAL MOMENT: Someone trusted turns — the scene cuts on the look of realization
+5. POWER SURGE: The protagonist's hidden power activates — we see the beginning but not the outcome
+
+REWRITE RULES:
+- Read the existing cliffhanger and identify why it's weak (too resolved? too vague? no stakes?)
+- The new cliffhanger must be SPECIFIC — not "something bad happened" but "Alpha Damon's claws were at her throat when her eyes turned silver"
+- It must align with the opening hook — emotional synergy between start and end
+- Keep it to 3-5 sentences max — punchy, not drawn out
+- End with the CTA immediately after peak tension
+
+OUTPUT: The rewritten cliffhanger + explanation of what was weak and what you fixed.
+""",
+
+    "super": """
+====================================================================
+MODE: SUPERAGENT (Full creative suite)
+====================================================================
+
+You are operating in SUPERAGENT mode — you can do EVERYTHING:
+- Analyze data, find patterns, compare writers/shows/openings
+- Write openings, Q1 scripts, full base scripts
+- Merge scripts together
+- Rewrite cliffhangers
+- Provide strategic recommendations
+
+CPI = CPM / (CTR × CTI). Every recommendation should be grounded in this formula.
+
+IMPORTANT CONTEXT:
+- Openings: ~180 seconds, may be bizarre/unrelated to story, must have clear merge point
+- Q1: First quarter, ~450-530 words, builds conviction + connection with female lead
+- Base Script: Full 8-12 min standalone, ~5,500-6,000 words
+- Cliffhanger: Final 30-60 seconds, must maximize unresolved tension for CTI
+- Script Merge: Combining scripts, ask clarifying questions if unclear
+
+When the user's request spans multiple modes, handle them all. If something is unclear, ask before proceeding.
+""",
+}
+
+# Mode-specific critique prompts
+MODE_CRITIQUE = {
+    "q1": """You are a ruthless creative director reviewing a draft Q1 opening script.
+Evaluate against these non-negotiable criteria. For each, score PASS or FAIL with a one-line reason:
+
+1. SHOCK HOOK: First sentence under 15 words? Visceral, specific, filmable image?
+2. TRAGIC BACKSTORY: Protagonist at lowest status? Conditions specific and concrete?
+3. NAMED ABUSE: Antagonists named individually? Specific cruelties? Quotable dialogue? 3+ escalations?
+4. IDENTITY REVEAL: Supernatural power moment? Mysterious, not over-explained?
+5. FATED MATE + CLIFFHANGER: Unresolved encounter? Viewer NEEDS to know what happens?
+6. WORD COUNT: 430-550 words?
+7. FEMALE PROTAGONIST?
+8. VOICE: First-person/intimate? Not literary prose?
+9. PACING: Every beat 3-4 sentences max?
+10. DIALOGUE: Antagonist lines cruel enough to screenshot?
+
+For each FAIL, write a specific rewrite instruction.
+End with: VERDICT: PASS or REWRITE NEEDED with numbered fixes.""",
+
+    "opening": """You are a ruthless creative director reviewing a draft OPENING (180-second hook content).
+Evaluate against these criteria. For each, score PASS or FAIL with a one-line reason:
+
+1. HOOK POWER: Does the first line stop the scroll? Under 15 words? Visceral/bizarre/extreme?
+2. ESCALATION: Do the first 30 seconds build on the hook with rising stakes?
+3. TENSION PEAK: Is there a clear maximum-intensity moment before the merge?
+4. MERGE POINT: Is there a clearly marked merge point? Is the transition seamless?
+5. STORY ENTRY: After the merge, are we grounded in real characters and story?
+6. WORD COUNT: 650-800 words (~180 seconds)?
+7. CTR POTENTIAL: Would YOU stop scrolling for this? Is it bizarre/extreme enough?
+8. CLIFFHANGER ALIGNMENT: Does the opening's emotional promise connect to the ending?
+9. VOICE: Visceral first-person or intimate? Not literary?
+10. SPECIFICITY: Named characters? Filmable images? No vague abstractions?
+
+For each FAIL, write a specific rewrite instruction.
+End with: VERDICT: PASS or REWRITE NEEDED with numbered fixes.""",
+
+    "base": """You are a ruthless creative director reviewing a full BASE SCRIPT (8-12 minute ad).
+Evaluate against these criteria. For each, score PASS or FAIL:
+
+1. Q1 HOOK: Does it open with a visceral, scroll-stopping hook?
+2. CHARACTER ARC: Does the protagonist go from lowest to powerful across the script?
+3. ESCALATION: Do stakes rise consistently through Q2-Q3?
+4. LOVE INTEREST: Is the fated mate/love interest introduced with tension?
+5. CLIMAX: Is Q3's confrontation emotionally intense and specific?
+6. CLIFFHANGER: Does the ending create UNBEARABLE need to know what happens?
+7. WORD COUNT: 5,000-6,500 words?
+8. VOICE CONSISTENCY: First-person/intimate throughout? No drift to literary?
+9. PACING: No scene lingers more than 5-6 sentences? Relentless momentum?
+10. CTA: Does it end with clear install CTA after peak tension?
+
+For each FAIL, write a specific rewrite instruction.
+End with: VERDICT: PASS or REWRITE NEEDED with numbered fixes.""",
+
+    "cliffhanger": """You are a ruthless creative director reviewing a CLIFFHANGER rewrite.
+Evaluate against these criteria. For each, score PASS or FAIL:
+
+1. UNRESOLVED TENSION: Does it leave something critically unresolved?
+2. SPECIFICITY: Named characters? Specific actions? Not vague?
+3. STAKES: Are the consequences clear and devastating?
+4. EMOTIONAL PEAK: Is this the most intense moment in the script?
+5. BREVITY: 3-5 sentences max? Punchy, not drawn out?
+6. CTI POTENTIAL: Would the viewer install JUST to resolve this moment?
+7. SYNERGY: Does it connect emotionally to the opening hook?
+
+For each FAIL, write a specific rewrite instruction.
+End with: VERDICT: PASS or REWRITE NEEDED with numbered fixes.""",
+}
 
 # ── Tool calling ──
 
@@ -200,19 +462,65 @@ def truncate_result(obj, max_chars=20000):
     return obj
 
 
-def run_generation(prompt, two_pass=True):
-    """Run tool-calling loop + optional two-pass critique."""
+def get_system_prompt_for_mode(mode):
+    """Build system prompt with mode-specific instructions appended."""
+    base = SYSTEM_PROMPT
+    if mode and mode in MODE_INSTRUCTIONS:
+        base += "\n\n" + MODE_INSTRUCTIONS[mode]
+    return base
+
+
+def get_critique_prompt_for_mode(mode):
+    """Return the appropriate critique prompt for the mode, or None if no critique applies."""
+    if mode in MODE_CRITIQUE:
+        return MODE_CRITIQUE[mode]
+    # For 'super' mode, use Q1 critique only if the draft looks like a script
+    if mode == "super":
+        return MODE_CRITIQUE["q1"]
+    # For 'merge' mode, use base script critique
+    if mode == "merge":
+        return MODE_CRITIQUE["base"]
+    return None
+
+
+def should_critique(prompt, mode, draft):
+    """Determine if this response should be critiqued."""
+    if len(draft) < 200:
+        return False
+    # If mode is explicitly set to a script type, always critique
+    if mode in ("q1", "opening", "base", "cliffhanger", "merge"):
+        return True
+    # For super mode or no mode, check if the response is actually a script
+    if mode == "super" or mode is None:
+        gen_keywords = ["write", "generate", "create", "give me", "q1", "opening", "hook", "script", "draft", "rewrite"]
+        is_generation = any(kw in prompt.lower() for kw in gen_keywords)
+        if not is_generation:
+            return False
+        # Check if draft looks like a data report (tables, lists of ad codes) vs a script
+        data_indicators = ["| ad_code", "| cpi", "| writer", "here are the writers", "here are the top",
+                           "here is a summary", "here is the data", "the following table"]
+        is_data = any(ind in draft.lower() for ind in data_indicators)
+        if is_data:
+            return False
+        return True
+    return False
+
+
+def run_generation(prompt, two_pass=True, mode=None):
+    """Run tool-calling loop + optional mode-aware two-pass critique."""
+    sys_prompt = get_system_prompt_for_mode(mode)
     messages = [
         types.Content(role="user", parts=[types.Part(text=f"{STATS_BLOCK}\n\nUSER REQUEST:\n{prompt}")]),
     ]
     tool_log = []
 
     # Tool calling loop
+    text_parts = []
     for _ in range(4):
         response = gclient.models.generate_content(
             model=CHAT_MODEL, contents=messages,
             config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT, temperature=1.0, tools=GEMINI_TOOLS,
+                system_instruction=sys_prompt, temperature=1.0, tools=GEMINI_TOOLS,
             ),
         )
         func_calls = []
@@ -244,38 +552,24 @@ def run_generation(prompt, two_pass=True):
     critique = None
     final = draft
 
-    # Two-pass critique for generation requests
-    gen_keywords = ["write", "generate", "create", "give me", "q1", "opening", "hook", "script", "draft"]
-    is_generation = any(kw in prompt.lower() for kw in gen_keywords)
-
-    if two_pass and is_generation and len(draft) > 200:
-        critique_prompt = f"""Review this draft Q1 script. For each criterion score PASS or FAIL:
-1. SHOCK HOOK: First sentence under 15 words, visceral image?
-2. TRAGIC BACKSTORY: Protagonist at lowest status, specific conditions?
-3. NAMED ABUSE: Antagonists named, specific cruelties, quotable dialogue, 3+ escalations?
-4. IDENTITY REVEAL: Supernatural power moment, mysterious?
-5. FATED MATE + CLIFFHANGER: Unresolved encounter?
-6. WORD COUNT: 430-550 words?
-7. FEMALE PROTAGONIST?
-8. VOICE: First-person/intimate, not literary?
-9. PACING: Every beat 3-4 sentences max?
-10. DIALOGUE: Antagonist lines cruel enough to screenshot?
-
-DRAFT:\n{draft}\n\nEnd with VERDICT: PASS or REWRITE NEEDED with fixes."""
-
-        cr = gclient.models.generate_content(
-            model=CHAT_MODEL, contents=critique_prompt,
-            config=types.GenerateContentConfig(temperature=0.3),
-        )
-        critique = cr.text or ""
-
-        if "REWRITE NEEDED" in critique.upper():
-            rw = gclient.models.generate_content(
-                model=CHAT_MODEL,
-                contents=f"Draft:\n{draft}\n\nCritique:\n{critique}\n\nRewrite fixing every FAIL. Return ONLY the revised script.",
-                config=types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT, temperature=1.0),
+    # Mode-aware two-pass critique
+    if two_pass and should_critique(prompt, mode, draft):
+        critique_sys = get_critique_prompt_for_mode(mode or "q1")
+        if critique_sys:
+            critique_input = f"DRAFT TO REVIEW:\n\n{draft}\n\nReview this draft against the criteria."
+            cr = gclient.models.generate_content(
+                model=CHAT_MODEL, contents=critique_input,
+                config=types.GenerateContentConfig(system_instruction=critique_sys, temperature=0.3),
             )
-            final = rw.text or draft
+            critique = cr.text or ""
+
+            if "REWRITE NEEDED" in critique.upper():
+                rw = gclient.models.generate_content(
+                    model=CHAT_MODEL,
+                    contents=f"Draft:\n{draft}\n\nCritique:\n{critique}\n\nRewrite fixing every FAIL. Return ONLY the revised script.",
+                    config=types.GenerateContentConfig(system_instruction=sys_prompt, temperature=1.0),
+                )
+                final = rw.text or draft
 
     return {
         "response": final,
@@ -294,12 +588,18 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 
 
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
 class ChatRequest(BaseModel):
     message: str
     chat_id: Optional[str] = None
     project_id: Optional[str] = None
     two_pass: bool = True
     file_context: Optional[str] = None
+    mode: Optional[str] = None  # opening, q1, base, merge, cliffhanger, super, or None (auto)
 
 
 class FeedbackRequest(BaseModel):
@@ -313,6 +613,20 @@ class ProjectRequest(BaseModel):
     name: str
 
 
+# ── Login ──
+VALID_USERS = {
+    "werewolf": os.getenv("SUPERBOT_PASS", "pfmsuperbot@"),
+}
+
+
+@app.post("/api/login")
+async def login(req: LoginRequest):
+    expected = VALID_USERS.get(req.username.lower())
+    if expected and req.password == expected:
+        return {"ok": True}
+    return JSONResponse({"ok": False, "error": "Invalid username or password"}, status_code=401)
+
+
 @app.get("/")
 async def index():
     return FileResponse(Path(__file__).parent / "static" / "index.html")
@@ -324,7 +638,7 @@ async def chat(req: ChatRequest):
     if req.file_context:
         prompt = f"{req.file_context}\n\n{prompt}"
     try:
-        result = run_generation(prompt, two_pass=req.two_pass)
+        result = run_generation(prompt, two_pass=req.two_pass, mode=req.mode)
     except Exception as e:
         raise HTTPException(500, str(e))
 
@@ -489,21 +803,25 @@ async def chat_stream(req: ChatRequest):
     if req.file_context:
         prompt = f"{req.file_context}\n\n{prompt}"
 
+    mode = req.mode
+    sys_prompt = get_system_prompt_for_mode(mode)
+
     async def generate():
         try:
-            # Stage 1: Tool calling
-            yield f"data: {json.dumps({'stage': 'Querying data tools...'})}\n\n"
+            mode_label = f" [{mode.upper()}]" if mode else ""
+            yield f"data: {json.dumps({'stage': f'Querying data tools...{mode_label}'})}\n\n"
 
             messages = [
                 types.Content(role="user", parts=[types.Part(text=f"{STATS_BLOCK}\n\nUSER REQUEST:\n{prompt}")]),
             ]
             tool_log = []
+            text_parts = []
 
             for round_num in range(4):
                 response = gclient.models.generate_content(
                     model=CHAT_MODEL, contents=messages,
                     config=types.GenerateContentConfig(
-                        system_instruction=SYSTEM_PROMPT, temperature=1.0, tools=GEMINI_TOOLS,
+                        system_instruction=sys_prompt, temperature=1.0, tools=GEMINI_TOOLS,
                     ),
                 )
                 func_calls = []
@@ -534,33 +852,27 @@ async def chat_stream(req: ChatRequest):
             critique = None
             final = draft
 
-            # Two-pass
-            gen_keywords = ["write", "generate", "create", "give me", "q1", "opening", "hook", "script", "draft"]
-            is_generation = any(kw in prompt.lower() for kw in gen_keywords)
-
-            if req.two_pass and is_generation and len(draft) > 200:
+            # Mode-aware two-pass critique
+            if req.two_pass and should_critique(prompt, mode, draft):
                 yield f"data: {json.dumps({'stage': 'Pass 2: Critiquing draft...'})}\n\n"
 
-                critique_prompt = f"""Review this draft Q1 script. For each criterion score PASS or FAIL:
-1. SHOCK HOOK  2. TRAGIC BACKSTORY  3. NAMED ABUSE  4. IDENTITY REVEAL
-5. FATED MATE + CLIFFHANGER  6. WORD COUNT (430-550)  7. FEMALE PROTAGONIST
-8. VOICE  9. PACING  10. DIALOGUE
-DRAFT:\n{draft}\nEnd with VERDICT: PASS or REWRITE NEEDED."""
-
-                cr = gclient.models.generate_content(
-                    model=CHAT_MODEL, contents=critique_prompt,
-                    config=types.GenerateContentConfig(temperature=0.3),
-                )
-                critique = cr.text or ""
-
-                if "REWRITE NEEDED" in critique.upper():
-                    yield f"data: {json.dumps({'stage': 'Pass 3: Rewriting based on critique...'})}\n\n"
-                    rw = gclient.models.generate_content(
-                        model=CHAT_MODEL,
-                        contents=f"Draft:\n{draft}\n\nCritique:\n{critique}\n\nRewrite fixing every FAIL. Return ONLY the revised script.",
-                        config=types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT, temperature=1.0),
+                critique_sys = get_critique_prompt_for_mode(mode or "q1")
+                if critique_sys:
+                    critique_input = f"DRAFT TO REVIEW:\n\n{draft}\n\nReview this draft against the criteria."
+                    cr = gclient.models.generate_content(
+                        model=CHAT_MODEL, contents=critique_input,
+                        config=types.GenerateContentConfig(system_instruction=critique_sys, temperature=0.3),
                     )
-                    final = rw.text or draft
+                    critique = cr.text or ""
+
+                    if "REWRITE NEEDED" in critique.upper():
+                        yield f"data: {json.dumps({'stage': 'Pass 3: Rewriting based on critique...'})}\n\n"
+                        rw = gclient.models.generate_content(
+                            model=CHAT_MODEL,
+                            contents=f"Draft:\n{draft}\n\nCritique:\n{critique}\n\nRewrite fixing every FAIL. Return ONLY the revised script.",
+                            config=types.GenerateContentConfig(system_instruction=sys_prompt, temperature=1.0),
+                        )
+                        final = rw.text or draft
 
             # Save chat
             chat_id = req.chat_id or str(uuid.uuid4())
@@ -595,6 +907,19 @@ async def delete_project_endpoint(project_id: str):
     if p.exists():
         p.unlink()
     return {"ok": True}
+
+
+@app.get("/api/shows")
+async def list_shows():
+    """Return list of available shows from briefs data."""
+    briefs = _load_briefs()
+    shows = {}
+    for b in briefs:
+        slug = b.get("show_slug")
+        name = b.get("show_name") or slug
+        if slug and slug not in shows:
+            shows[slug] = name
+    return [{"slug": s, "name": n} for s, n in sorted(shows.items(), key=lambda x: x[1])]
 
 
 @app.get("/api/stats")
