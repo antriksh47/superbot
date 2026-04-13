@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Superbot — Pocket FM</title>
+<link rel="icon" href="https://play-lh.googleusercontent.com/a0zmSKJvRnIRHxWqfNFVPCFqkGMEzVN_0GgZEDMx4y8GYqJJnWT1sEeAJwMHFuAN_g=w480-h960-rw" type="image/png">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/lucide-static@0.263.1/font/lucide.min.css" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --sidebar-bg: #171717;
+  --sidebar-hover: #2a2a2a;
+  --sidebar-border: #2e2e2e;
+  --sidebar-text: #ececec;
+  --sidebar-muted: #8e8ea0;
+  --main-bg: #212121;
+  --msg-user-bg: #2f2f2f;
+  --msg-assistant-bg: #212121;
+  --text-primary: #ececec;
+  --text-secondary: #b4b4b4;
+  --text-muted: #8e8ea0;
+  --accent: #10a37f;
+  --accent-hover: #0d8c6d;
+  --border: #2e2e2e;
+  --input-bg: #2f2f2f;
+  --input-border: #424242;
+  --code-bg: #1a1a1a;
+}
+
+html, body {
+  height: 100%; overflow: hidden;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--main-bg); color: var(--text-primary);
+  font-size: 15px; line-height: 1.6;
+}
+
+/* ══════════ LAYOUT ══════════ */
+.app { display: flex; height: 100vh; }
+
+/* ══════════ SIDEBAR ══════════ */
+.sidebar {
+  width: 260px; min-width: 260px;
+  background: var(--sidebar-bg);
+  display: flex; flex-direction: column;
+  border-right: 1px solid var(--sidebar-border);
+  transition: transform 0.2s ease;
+}
+.sidebar-header {
+  padding: 12px 16px;
+  display: flex; align-items: center; gap: 10px;
+  border-bottom: 1px solid var(--sidebar-border);
+}
+.sidebar-header img { width: 28px; height: 28px; border-radius: 6px; }
+.sidebar-header h1 { font-size: 16px; font-weight: 600; color: var(--sidebar-text); }
+.new-chat-btn {
+  margin: 12px 12px 8px 12px; padding: 10px 14px;
+  background: transparent; border: 1px solid var(--input-border);
+  border-radius: 8px; color: var(--sidebar-text);
+  font-size: 14px; font-weight: 500; cursor: pointer;
+  display: flex; align-items: center; gap: 8px;
+  transition: background 0.15s;
+}
+.new-chat-btn:hover { background: var(--sidebar-hover); }
+.new-chat-btn svg { width: 16px; height: 16px; }
+
+.sidebar-section-label {
+  font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--sidebar-muted);
+  padding: 16px 16px 6px 16px;
+}
+.chat-list { flex: 1; overflow-y: auto; padding: 4px 8px; }
+.chat-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 10px; border-radius: 8px; cursor: pointer;
+  color: var(--sidebar-text); font-size: 13px;
+  transition: background 0.12s; margin-bottom: 1px;
+}
+.chat-item:hover { background: var(--sidebar-hover); }
+.chat-item.active { background: var(--sidebar-hover); }
+.chat-item-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-item-delete {
+  opacity: 0; background: none; border: none; color: var(--sidebar-muted);
+  cursor: pointer; padding: 2px 4px; font-size: 14px;
+}
+.chat-item:hover .chat-item-delete { opacity: 1; }
+
+.sidebar-footer {
+  padding: 12px 16px; border-top: 1px solid var(--sidebar-border);
+  font-size: 12px; color: var(--sidebar-muted);
+}
+
+/* ══════════ MAIN ══════════ */
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+/* ══════════ MESSAGES ══════════ */
+.messages {
+  flex: 1; overflow-y: auto; scroll-behavior: smooth;
+  padding-bottom: 120px;
+}
+.message {
+  padding: 24px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+.message-inner {
+  max-width: 768px; margin: 0 auto; padding: 0 24px;
+  display: flex; gap: 16px;
+}
+.avatar {
+  width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 600; margin-top: 2px;
+}
+.avatar-user { background: #ab68ff; color: white; }
+.avatar-assistant {
+  background: var(--accent); color: white;
+  padding: 5px; border-radius: 6px;
+}
+.avatar-assistant img { width: 20px; height: 20px; border-radius: 3px; }
+.message-content { flex: 1; min-width: 0; }
+.message-content p { margin-bottom: 12px; }
+.message-content strong { font-weight: 600; }
+.message-content code {
+  background: var(--code-bg); padding: 2px 6px; border-radius: 4px;
+  font-size: 13px; font-family: 'SF Mono', 'Fira Code', monospace;
+}
+.message-content pre {
+  background: var(--code-bg); padding: 16px; border-radius: 8px;
+  overflow-x: auto; font-size: 13px; margin: 12px 0;
+}
+.message-content ul, .message-content ol { padding-left: 24px; margin-bottom: 12px; }
+.message-content li { margin-bottom: 4px; }
+.message-content h1, .message-content h2, .message-content h3 {
+  margin: 16px 0 8px 0; font-weight: 600;
+}
+.message-content h1 { font-size: 20px; }
+.message-content h2 { font-size: 17px; }
+.message-content h3 { font-size: 15px; }
+
+/* Feedback bar */
+.feedback-bar {
+  display: flex; align-items: center; gap: 6px; margin-top: 12px;
+}
+.feedback-btn {
+  background: none; border: 1px solid var(--input-border);
+  border-radius: 6px; padding: 4px 8px; cursor: pointer;
+  color: var(--text-muted); font-size: 13px;
+  transition: all 0.15s;
+}
+.feedback-btn:hover { background: var(--sidebar-hover); color: var(--text-primary); }
+.feedback-btn.active { border-color: var(--accent); color: var(--accent); }
+
+/* Tool log */
+.tool-log {
+  margin-top: 8px; font-size: 12px; color: var(--text-muted);
+  background: var(--code-bg); border-radius: 6px; padding: 8px 12px;
+}
+.tool-log summary { cursor: pointer; font-weight: 500; }
+.tool-log code { font-size: 11px; }
+
+/* ══════════ EMPTY STATE ══════════ */
+.empty-state {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  padding: 40px 20px;
+}
+.empty-logo img { width: 48px; height: 48px; border-radius: 12px; margin-bottom: 20px; }
+.empty-title { font-size: 24px; font-weight: 700; margin-bottom: 4px; }
+.empty-sub { color: var(--text-muted); font-size: 15px; margin-bottom: 32px; }
+.suggestions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; max-width: 600px; width: 100%; }
+.suggestion {
+  border: 1px solid var(--border); border-radius: 12px;
+  padding: 14px 16px; cursor: pointer; transition: background 0.15s;
+  text-align: left;
+}
+.suggestion:hover { background: var(--msg-user-bg); }
+.suggestion-title { font-size: 13px; font-weight: 600; margin-bottom: 3px; }
+.suggestion-desc { font-size: 12px; color: var(--text-muted); line-height: 1.4; }
+
+/* ══════════ INPUT BAR ══════════ */
+.input-bar {
+  position: absolute; bottom: 0; left: 260px; right: 0;
+  padding: 16px 24px 24px 24px;
+  background: linear-gradient(transparent, var(--main-bg) 30%);
+}
+.input-inner {
+  max-width: 768px; margin: 0 auto;
+  display: flex; align-items: flex-end; gap: 8px;
+  background: var(--input-bg); border: 1px solid var(--input-border);
+  border-radius: 24px; padding: 8px 12px 8px 20px;
+  transition: border-color 0.2s;
+}
+.input-inner:focus-within { border-color: var(--accent); }
+.input-inner textarea {
+  flex: 1; background: none; border: none; outline: none;
+  color: var(--text-primary); font-family: inherit; font-size: 15px;
+  resize: none; max-height: 200px; min-height: 24px; line-height: 1.5;
+  padding: 4px 0;
+}
+.input-inner textarea::placeholder { color: var(--text-muted); }
+.send-btn {
+  width: 32px; height: 32px; border-radius: 8px;
+  background: var(--text-muted); border: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.15s; flex-shrink: 0;
+}
+.send-btn:hover { background: var(--text-primary); }
+.send-btn.ready { background: var(--accent); }
+.send-btn.ready:hover { background: var(--accent-hover); }
+.send-btn svg { width: 16px; height: 16px; color: var(--main-bg); }
+.input-footer { text-align: center; margin-top: 8px; font-size: 11px; color: var(--text-muted); }
+
+/* ══════════ LOADING ══════════ */
+.loading-dots { display: inline-flex; gap: 4px; }
+.loading-dots span {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--text-muted); animation: blink 1.4s infinite;
+}
+.loading-dots span:nth-child(2) { animation-delay: 0.2s; }
+.loading-dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes blink { 0%, 80%, 100% { opacity: 0.3; } 40% { opacity: 1; } }
+
+/* ══════════ RESPONSIVE ══════════ */
+@media (max-width: 768px) {
+  .sidebar { position: absolute; z-index: 100; transform: translateX(-100%); }
+  .sidebar.open { transform: translateX(0); }
+  .input-bar { left: 0; }
+  .suggestions { grid-template-columns: 1fr; }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- SIDEBAR -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <img src="https://play-lh.googleusercontent.com/a0zmSKJvRnIRHxWqfNFVPCFqkGMEzVN_0GgZEDMx4y8GYqJJnWT1sEeAJwMHFuAN_g=w480-h960-rw" alt="PFM">
+      <h1>Superbot</h1>
+    </div>
+    <button class="new-chat-btn" onclick="newChat()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      New chat
+    </button>
+    <div class="sidebar-section-label">Recent</div>
+    <div class="chat-list" id="chatList"></div>
+    <div class="sidebar-footer" id="sidebarStats">Loading...</div>
+  </aside>
+
+  <!-- MAIN -->
+  <div class="main">
+    <div class="messages" id="messages">
+      <div class="empty-state" id="emptyState">
+        <div class="empty-logo">
+          <img src="https://play-lh.googleusercontent.com/a0zmSKJvRnIRHxWqfNFVPCFqkGMEzVN_0GgZEDMx4y8GYqJJnWT1sEeAJwMHFuAN_g=w480-h960-rw" alt="">
+        </div>
+        <div class="empty-title">Superbot</div>
+        <div class="empty-sub">Data-backed ad script generation for Pocket FM</div>
+        <div class="suggestions">
+          <div class="suggestion" onclick="useSuggestion('Show me the 10 best-performing hooks and what makes them crack')">
+            <div class="suggestion-title">Top performers</div>
+            <div class="suggestion-desc">Best hooks by CPI + structural analysis</div>
+          </div>
+          <div class="suggestion" onclick="useSuggestion('Write a 2-min Q1 opening script for The Alpha\\'s Bride targeting sub-$2.50 CPI')">
+            <div class="suggestion-title">Write a Q1</div>
+            <div class="suggestion-desc">Full opening script for a show</div>
+          </div>
+          <div class="suggestion" onclick="useSuggestion('What do all our sub-$2.00 CPI hooks have in common? Show the structural DNA with examples.')">
+            <div class="suggestion-title">Pattern analysis</div>
+            <div class="suggestion-desc">What makes winning hooks work</div>
+          </div>
+          <div class="suggestion" onclick="useSuggestion('Which writers consistently hit under $2.50 CPI? Show their best work and patterns.')">
+            <div class="suggestion-title">Writer stats</div>
+            <div class="suggestion-desc">Leaderboard + portfolio analysis</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- INPUT -->
+    <div class="input-bar">
+      <div class="input-inner">
+        <textarea id="chatInput" placeholder="Message Superbot..." rows="1"
+          onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage()}"
+          oninput="autoResize(this);toggleSend()"></textarea>
+        <button class="send-btn" id="sendBtn" onclick="sendMessage()" disabled>
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+        </button>
+      </div>
+      <div class="input-footer">Superbot uses Gemini + your historical ad data. Always verify critical metrics.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ──
+let currentChatId = null;
+let isGenerating = false;
+
+// ── API helpers ──
+const api = (path, opts = {}) => fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts }).then(r => r.json());
+
+// ── Init ──
+async function init() {
+  loadChats();
+  loadStats();
+}
+
+async function loadStats() {
+  try {
+    const s = await api('/api/stats');
+    document.getElementById('sidebarStats').innerHTML =
+      `${s.total_assets} ads &middot; ${s.total_briefs} briefs &middot; ${s.total_shows} shows`;
+  } catch(e) { console.error(e); }
+}
+
+async function loadChats() {
+  try {
+    const chats = await api('/api/chats');
+    const list = document.getElementById('chatList');
+    list.innerHTML = chats.map(c => `
+      <div class="chat-item ${c.id === currentChatId ? 'active' : ''}" onclick="openChat('${c.id}')">
+        <span class="chat-item-title">${esc(c.title || 'Untitled')}</span>
+        <button class="chat-item-delete" onclick="event.stopPropagation();deleteChat('${c.id}')">&#x2715;</button>
+      </div>
+    `).join('');
+  } catch(e) { console.error(e); }
+}
+
+function newChat() {
+  currentChatId = null;
+  document.getElementById('messages').innerHTML = document.getElementById('emptyState') ?
+    document.getElementById('messages').querySelector('.empty-state')?.outerHTML || '' : '';
+  showEmpty();
+  loadChats();
+}
+
+function showEmpty() {
+  const el = document.getElementById('emptyState');
+  const msgs = document.getElementById('messages');
+  msgs.innerHTML = `
+    <div class="empty-state" id="emptyState">
+      <div class="empty-logo">
+        <img src="https://play-lh.googleusercontent.com/a0zmSKJvRnIRHxWqfNFVPCFqkGMEzVN_0GgZEDMx4y8GYqJJnWT1sEeAJwMHFuAN_g=w480-h960-rw" alt="">
+      </div>
+      <div class="empty-title">Superbot</div>
+      <div class="empty-sub">Data-backed ad script generation for Pocket FM</div>
+      <div class="suggestions">
+        <div class="suggestion" onclick="useSuggestion('Show me the 10 best-performing hooks and what makes them crack')">
+          <div class="suggestion-title">Top performers</div>
+          <div class="suggestion-desc">Best hooks by CPI + structural analysis</div>
+        </div>
+        <div class="suggestion" onclick="useSuggestion('Write a 2-min Q1 opening script for The Alpha\\'s Bride targeting sub-$2.50 CPI')">
+          <div class="suggestion-title">Write a Q1</div>
+          <div class="suggestion-desc">Full opening script for a show</div>
+        </div>
+        <div class="suggestion" onclick="useSuggestion('What do all our sub-$2.00 CPI hooks have in common? Show the structural DNA with examples.')">
+          <div class="suggestion-title">Pattern analysis</div>
+          <div class="suggestion-desc">What makes winning hooks work</div>
+        </div>
+        <div class="suggestion" onclick="useSuggestion('Which writers consistently hit under $2.50 CPI? Show their best work and patterns.')">
+          <div class="suggestion-title">Writer stats</div>
+          <div class="suggestion-desc">Leaderboard + portfolio analysis</div>
+        </div>
+      </div>
+    </div>`;
+}
+
+async function openChat(chatId) {
+  currentChatId = chatId;
+  try {
+    const chat = await api(`/api/chats/${chatId}`);
+    const msgs = document.getElementById('messages');
+    msgs.innerHTML = '';
+    for (const msg of chat.messages) {
+      appendMessage(msg.role, msg.content, msg.tool_log, msg.draft, msg.critique);
+    }
+    scrollToBottom();
+    loadChats();
+  } catch(e) { console.error(e); }
+}
+
+async function deleteChat(chatId) {
+  await api(`/api/chats/${chatId}`, { method: 'DELETE' });
+  if (currentChatId === chatId) newChat();
+  loadChats();
+}
+
+// ── Messages ──
+function appendMessage(role, content, toolLog, draft, critique) {
+  const msgs = document.getElementById('messages');
+  const empty = msgs.querySelector('.empty-state');
+  if (empty) empty.remove();
+
+  const div = document.createElement('div');
+  div.className = 'message';
+
+  const avatarClass = role === 'user' ? 'avatar-user' : 'avatar-assistant';
+  const avatarContent = role === 'user' ? 'U' :
+    '<img src="https://play-lh.googleusercontent.com/a0zmSKJvRnIRHxWqfNFVPCFqkGMEzVN_0GgZEDMx4y8GYqJJnWT1sEeAJwMHFuAN_g=w480-h960-rw" alt="">';
+
+  let extras = '';
+  if (toolLog && toolLog.length > 0) {
+    const items = toolLog.map(t => `<code>${t.tool}(${Object.entries(t.args||{}).map(([k,v])=>k+'='+JSON.stringify(v)).join(', ')})</code>`).join('<br>');
+    extras += `<details class="tool-log"><summary>Tools called (${toolLog.length})</summary>${items}</details>`;
+  }
+  if (draft && critique && draft !== content) {
+    extras += `<details class="tool-log"><summary>Draft + Critique (two-pass)</summary><strong>Draft:</strong><br>${esc(draft.substring(0,1500))}<br><br><strong>Critique:</strong><br>${esc(critique.substring(0,1500))}</details>`;
+  }
+  if (role === 'assistant') {
+    extras += `<div class="feedback-bar">
+      <button class="feedback-btn" onclick="sendFeedback(this,'up')">&#128077;</button>
+      <button class="feedback-btn" onclick="sendFeedback(this,'down')">&#128078;</button>
+    </div>`;
+  }
+
+  div.innerHTML = `<div class="message-inner">
+    <div class="avatar ${avatarClass}">${avatarContent}</div>
+    <div class="message-content">${role === 'user' ? esc(content) : renderMarkdown(content)}${extras}</div>
+  </div>`;
+
+  msgs.appendChild(div);
+}
+
+function scrollToBottom() {
+  const msgs = document.getElementById('messages');
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+// ── Send ──
+async function sendMessage() {
+  const input = document.getElementById('chatInput');
+  const text = input.value.trim();
+  if (!text || isGenerating) return;
+
+  isGenerating = true;
+  input.value = ''; autoResize(input); toggleSend();
+
+  appendMessage('user', text);
+  scrollToBottom();
+
+  // Show loading
+  const loadingDiv = document.createElement('div');
+  loadingDiv.className = 'message';
+  loadingDiv.id = 'loadingMsg';
+  loadingDiv.innerHTML = `<div class="message-inner">
+    <div class="avatar avatar-assistant"><img src="https://play-lh.googleusercontent.com/a0zmSKJvRnIRHxWqfNFVPCFqkGMEzVN_0GgZEDMx4y8GYqJJnWT1sEeAJwMHFuAN_g=w480-h960-rw" alt=""></div>
+    <div class="message-content"><div class="loading-dots"><span></span><span></span><span></span></div></div>
+  </div>`;
+  document.getElementById('messages').appendChild(loadingDiv);
+  scrollToBottom();
+
+  try {
+    const res = await api('/api/chat', {
+      method: 'POST',
+      body: JSON.stringify({ message: text, chat_id: currentChatId, two_pass: true }),
+    });
+    currentChatId = res.chat_id;
+    loadingDiv.remove();
+    appendMessage('assistant', res.response, res.tool_log, res.draft, res.critique);
+    scrollToBottom();
+    loadChats();
+  } catch(e) {
+    loadingDiv.remove();
+    appendMessage('assistant', 'Error: ' + e.message);
+  }
+  isGenerating = false;
+}
+
+function useSuggestion(text) {
+  document.getElementById('chatInput').value = text;
+  autoResize(document.getElementById('chatInput'));
+  toggleSend();
+  sendMessage();
+}
+
+// ── Feedback ──
+async function sendFeedback(btn, rating) {
+  btn.classList.add('active');
+  try {
+    await api('/api/feedback', {
+      method: 'POST',
+      body: JSON.stringify({ chat_id: currentChatId || '', msg_idx: 0, rating }),
+    });
+  } catch(e) { console.error(e); }
+}
+
+// ── Helpers ──
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+}
+
+function toggleSend() {
+  const btn = document.getElementById('sendBtn');
+  const has = document.getElementById('chatInput').value.trim().length > 0;
+  btn.disabled = !has;
+  btn.className = has ? 'send-btn ready' : 'send-btn';
+}
+
+function esc(s) {
+  const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML;
+}
+
+function renderMarkdown(text) {
+  if (!text) return '';
+  let html = esc(text);
+  // Bold
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // Code blocks
+  html = html.replace(/```[\w]*\n([\s\S]*?)```/g, '<pre>$1</pre>');
+  // Headers
+  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+  // Lists
+  html = html.replace(/^\- (.+)$/gm, '<li>$1</li>');
+  html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+  // Paragraphs
+  html = html.replace(/\n\n/g, '</p><p>');
+  html = html.replace(/\n/g, '<br>');
+  html = '<p>' + html + '</p>';
+  // Wrap consecutive <li> in <ul>
+  html = html.replace(/(<li>.*?<\/li>)+/gs, match => `<ul>${match}</ul>`);
+  return html;
+}
+
+// ── Boot ──
+init();
+</script>
+</body>
+</html>

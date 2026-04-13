@@ -20,7 +20,11 @@ beautifulsoup4>=4.12.0
 # Gemini (LLM + function calling)
 google-genai==0.3.0
 
-# Chatbot UI
+# Web server
+fastapi>=0.104.0
+uvicorn>=0.24.0
+
+# Chatbot UI (legacy, kept for local dev)
 streamlit==1.37.1
 
 # Ad Library HTTP calls (Phase 2)
