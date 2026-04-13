@@ -487,7 +487,7 @@ def run_generation(prompt, two_pass=True, mode=None):
             model=CHAT_MODEL, contents=critique_input,
             config=types.GenerateContentConfig(system_instruction=CRITIQUE_SYSTEM, temperature=0.3),
         )
-        critique = cr.text or ""
+        critique = getattr(cr, 'text', None) or ""
 
         if "REWRITE NEEDED" in critique.upper():
             rw = gclient.models.generate_content(
@@ -500,7 +500,7 @@ def run_generation(prompt, two_pass=True, mode=None):
                 ),
                 config=types.GenerateContentConfig(system_instruction=sys_prompt, temperature=1.0),
             )
-            final = rw.text or draft
+            final = getattr(rw, 'text', None) or draft
 
     return {
         "response": final,
@@ -757,8 +757,8 @@ async def chat_stream(req: ChatRequest):
                 )
                 func_calls = []
                 text_parts = []
-                for candidate in response.candidates:
-                    for part in candidate.content.parts:
+                for candidate in (response.candidates or []):
+                    for part in (candidate.content.parts if candidate.content else []):
                         if hasattr(part, 'function_call') and part.function_call:
                             func_calls.append(part.function_call)
                         elif hasattr(part, 'text') and part.text:
@@ -796,7 +796,7 @@ async def chat_stream(req: ChatRequest):
                     model=CHAT_MODEL, contents=critique_input,
                     config=types.GenerateContentConfig(system_instruction=CRITIQUE_SYSTEM, temperature=0.3),
                 )
-                critique = cr.text or ""
+                critique = getattr(cr, 'text', None) or ""
 
                 if "REWRITE NEEDED" in critique.upper():
                     yield f"data: {json.dumps({'stage': 'Pass 3: Rewriting based on critique...'})}\n\n"
@@ -810,7 +810,7 @@ async def chat_stream(req: ChatRequest):
                         ),
                         config=types.GenerateContentConfig(system_instruction=sys_prompt, temperature=1.0),
                     )
-                    final = rw.text or draft
+                    final = getattr(rw, 'text', None) or draft
 
             # Save chat
             chat_id = req.chat_id or str(uuid.uuid4())
