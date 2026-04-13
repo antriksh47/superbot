@@ -530,6 +530,33 @@ def execute_tool_call(func_name, args):
         return {"error": f"Tool {func_name} failed: {str(e)}"}
 
 
+def _truncate_result(obj, max_chars=24000):
+    """Truncate a tool result dict so its JSON serialization stays under max_chars.
+    Truncates string values and trims list items — always returns valid JSON-serializable data."""
+    serialized = json.dumps(obj, default=str)
+    if len(serialized) <= max_chars:
+        return obj
+    # Deep-truncate: shorten long string fields, trim list lengths
+    if isinstance(obj, dict):
+        out = {}
+        for k, v in obj.items():
+            if isinstance(v, str) and len(v) > 2000:
+                out[k] = v[:2000] + "...[truncated]"
+            elif isinstance(v, list) and len(v) > 15:
+                out[k] = [_truncate_result(item, max_chars=1500) for item in v[:15]]
+                out[k].append({"note": f"truncated — {len(v)} total items, showing first 15"})
+            elif isinstance(v, dict):
+                out[k] = _truncate_result(v, max_chars=3000)
+            else:
+                out[k] = v
+        return out
+    elif isinstance(obj, list):
+        return [_truncate_result(item, max_chars=1500) for item in obj[:15]]
+    elif isinstance(obj, str) and len(obj) > 2000:
+        return obj[:2000] + "...[truncated]"
+    return obj
+
+
 def run_tool_calling_loop(gclient, prompt, system_instruction, stats_block, max_rounds=4):
     """
     Run Gemini with function calling in a loop:
@@ -576,14 +603,12 @@ def run_tool_calling_loop(gclient, prompt, system_instruction, stats_block, max_
             args = dict(fc.args) if fc.args else {}
             tool_log.append({"tool": fc.name, "args": args})
             result = execute_tool_call(fc.name, args)
-            result_json = json.dumps(result, default=str)
-            # Cap individual tool results to prevent context overflow
-            if len(result_json) > 25000:
-                result_json = result_json[:25000] + '..."truncated"}'
+            # Cap tool results to prevent context overflow — truncate data, not JSON
+            result = _truncate_result(result, max_chars=24000)
             func_response_parts.append(
                 types.Part.from_function_response(
                     name=fc.name,
-                    response=json.loads(result_json),
+                    response=result,
                 )
             )
 
