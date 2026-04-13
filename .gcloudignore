@@ -1,0 +1,39 @@
+# Override .gitignore for Cloud Build uploads
+# We NEED .tmp/assets_with_text.json and .tmp/show_briefs.json in the build
+
+# Secrets — never upload
+.env
+credentials.json
+token.json
+token.json.*
+
+# Heavy data we don't need in the container
+.tmp/chroma_db/
+.tmp/scripts_cache/
+.tmp/briefs_cache/
+.tmp/briefs_linked_cache/
+.tmp/ndnf_hyperlinks.json
+.tmp/ndnf_tracker.xlsx
+.tmp/assets.json
+.tmp/chats/
+.tmp/projects/
+.tmp/feedback.json
+
+# Source data
+data/
+
+# Dev stuff
+venv/
+__pycache__/
+*.pyc
+.git/
+.claude/
+
+# Build-only tools (not needed at runtime)
+tools/build_index.py
+tools/build_briefs_index.py
+tools/fetch_gdocs.py
+tools/fetch_briefs.py
+tools/ingest_csv.py
+tools/meta_ad_library.py
+workflows/
