@@ -303,73 +303,28 @@ When the user's request spans multiple modes, handle them all. If something is u
 """,
 }
 
-# Mode-specific critique prompts
-MODE_CRITIQUE = {
-    "q1": """You are a ruthless creative director reviewing a draft Q1 opening script.
-Evaluate against these non-negotiable criteria. For each, score PASS or FAIL with a one-line reason:
+CRITIQUE_SYSTEM = """You are a senior creative director at Pocket FM reviewing a draft response.
 
-1. SHOCK HOOK: First sentence under 15 words? Visceral, specific, filmable image?
-2. TRAGIC BACKSTORY: Protagonist at lowest status? Conditions specific and concrete?
-3. NAMED ABUSE: Antagonists named individually? Specific cruelties? Quotable dialogue? 3+ escalations?
-4. IDENTITY REVEAL: Supernatural power moment? Mysterious, not over-explained?
-5. FATED MATE + CLIFFHANGER: Unresolved encounter? Viewer NEEDS to know what happens?
-6. WORD COUNT: 430-550 words?
-7. FEMALE PROTAGONIST?
-8. VOICE: First-person/intimate? Not literary prose?
-9. PACING: Every beat 3-4 sentences max?
-10. DIALOGUE: Antagonist lines cruel enough to screenshot?
+Your job is simple: read what the user originally asked for, read the draft, and evaluate whether the draft actually delivers what was requested — clearly, accurately, and effectively.
 
-For each FAIL, write a specific rewrite instruction.
-End with: VERDICT: PASS or REWRITE NEEDED with numbered fixes.""",
+You understand the Pocket FM ad domain deeply:
+- CPI = CPM / (CTR × CTI). Lower CPI = better. CTR is driven by hooks/openings. CTI is driven by cliffhangers.
+- Openings (~180s) hook viewers and merge into the base story. They need a clear merge point.
+- Q1 scripts (~450-530 words) are the first 2 minutes — they build conviction and connection with the female lead.
+- Base scripts (8-12 min, ~5,500-6,000 words) are full standalone ads.
+- Cliffhangers must create unresolved tension that drives installs.
+- The audience is women 18-35. Female protagonists perform best.
 
-    "opening": """You are a ruthless creative director reviewing a draft OPENING (180-second hook content).
-Evaluate against these criteria. For each, score PASS or FAIL with a one-line reason:
+HOW TO CRITIQUE:
+1. First, understand what the user asked for. Is it a script? A data report? An analysis? A comparison?
+2. Evaluate ONLY against what was asked — don't apply script criteria to a data report, or data criteria to a script.
+3. For scripts: Is it emotionally compelling? Is the hook strong? Are characters named? Is pacing tight? Does the cliffhanger land?
+4. For data/analysis: Is it accurate? Well-structured? Does it actually answer the question? Are there insights the user would find valuable?
+5. For any response: Is anything missing? Could it be sharper? Are there specific improvements?
 
-1. HOOK POWER: Does the first line stop the scroll? Under 15 words? Visceral/bizarre/extreme?
-2. ESCALATION: Do the first 30 seconds build on the hook with rising stakes?
-3. TENSION PEAK: Is there a clear maximum-intensity moment before the merge?
-4. MERGE POINT: Is there a clearly marked merge point? Is the transition seamless?
-5. STORY ENTRY: After the merge, are we grounded in real characters and story?
-6. WORD COUNT: 650-800 words (~180 seconds)?
-7. CTR POTENTIAL: Would YOU stop scrolling for this? Is it bizarre/extreme enough?
-8. CLIFFHANGER ALIGNMENT: Does the opening's emotional promise connect to the ending?
-9. VOICE: Visceral first-person or intimate? Not literary?
-10. SPECIFICITY: Named characters? Filmable images? No vague abstractions?
+Keep your critique concise and actionable. Don't nitpick — focus on what would make the biggest difference.
 
-For each FAIL, write a specific rewrite instruction.
-End with: VERDICT: PASS or REWRITE NEEDED with numbered fixes.""",
-
-    "base": """You are a ruthless creative director reviewing a full BASE SCRIPT (8-12 minute ad).
-Evaluate against these criteria. For each, score PASS or FAIL:
-
-1. Q1 HOOK: Does it open with a visceral, scroll-stopping hook?
-2. CHARACTER ARC: Does the protagonist go from lowest to powerful across the script?
-3. ESCALATION: Do stakes rise consistently through Q2-Q3?
-4. LOVE INTEREST: Is the fated mate/love interest introduced with tension?
-5. CLIMAX: Is Q3's confrontation emotionally intense and specific?
-6. CLIFFHANGER: Does the ending create UNBEARABLE need to know what happens?
-7. WORD COUNT: 5,000-6,500 words?
-8. VOICE CONSISTENCY: First-person/intimate throughout? No drift to literary?
-9. PACING: No scene lingers more than 5-6 sentences? Relentless momentum?
-10. CTA: Does it end with clear install CTA after peak tension?
-
-For each FAIL, write a specific rewrite instruction.
-End with: VERDICT: PASS or REWRITE NEEDED with numbered fixes.""",
-
-    "cliffhanger": """You are a ruthless creative director reviewing a CLIFFHANGER rewrite.
-Evaluate against these criteria. For each, score PASS or FAIL:
-
-1. UNRESOLVED TENSION: Does it leave something critically unresolved?
-2. SPECIFICITY: Named characters? Specific actions? Not vague?
-3. STAKES: Are the consequences clear and devastating?
-4. EMOTIONAL PEAK: Is this the most intense moment in the script?
-5. BREVITY: 3-5 sentences max? Punchy, not drawn out?
-6. CTI POTENTIAL: Would the viewer install JUST to resolve this moment?
-7. SYNERGY: Does it connect emotionally to the opening hook?
-
-For each FAIL, write a specific rewrite instruction.
-End with: VERDICT: PASS or REWRITE NEEDED with numbered fixes.""",
-}
+End with: VERDICT: PASS (good to go) or REWRITE NEEDED (with specific fixes)."""
 
 # ── Tool calling ──
 
@@ -470,40 +425,9 @@ def get_system_prompt_for_mode(mode):
     return base
 
 
-def get_critique_prompt_for_mode(mode):
-    """Return the appropriate critique prompt for the mode, or None if no critique applies."""
-    if mode in MODE_CRITIQUE:
-        return MODE_CRITIQUE[mode]
-    # For 'super' mode, use Q1 critique only if the draft looks like a script
-    if mode == "super":
-        return MODE_CRITIQUE["q1"]
-    # For 'merge' mode, use base script critique
-    if mode == "merge":
-        return MODE_CRITIQUE["base"]
-    return None
-
-
-def should_critique(prompt, mode, draft):
-    """Determine if this response should be critiqued."""
-    if len(draft) < 200:
-        return False
-    # If mode is explicitly set to a script type, always critique
-    if mode in ("q1", "opening", "base", "cliffhanger", "merge"):
-        return True
-    # For super mode or no mode, check if the response is actually a script
-    if mode == "super" or mode is None:
-        gen_keywords = ["write", "generate", "create", "give me", "q1", "opening", "hook", "script", "draft", "rewrite"]
-        is_generation = any(kw in prompt.lower() for kw in gen_keywords)
-        if not is_generation:
-            return False
-        # Check if draft looks like a data report (tables, lists of ad codes) vs a script
-        data_indicators = ["| ad_code", "| cpi", "| writer", "here are the writers", "here are the top",
-                           "here is a summary", "here is the data", "the following table"]
-        is_data = any(ind in draft.lower() for ind in data_indicators)
-        if is_data:
-            return False
-        return True
-    return False
+def should_critique(draft):
+    """Only critique if the draft is substantial enough to be worth reviewing."""
+    return len(draft) > 200
 
 
 def run_generation(prompt, two_pass=True, mode=None):
@@ -552,24 +476,31 @@ def run_generation(prompt, two_pass=True, mode=None):
     critique = None
     final = draft
 
-    # Mode-aware two-pass critique
-    if two_pass and should_critique(prompt, mode, draft):
-        critique_sys = get_critique_prompt_for_mode(mode or "q1")
-        if critique_sys:
-            critique_input = f"DRAFT TO REVIEW:\n\n{draft}\n\nReview this draft against the criteria."
-            cr = gclient.models.generate_content(
-                model=CHAT_MODEL, contents=critique_input,
-                config=types.GenerateContentConfig(system_instruction=critique_sys, temperature=0.3),
-            )
-            critique = cr.text or ""
+    # Smart two-pass critique — sends user prompt as context so the critic understands what was asked
+    if two_pass and should_critique(draft):
+        critique_input = (
+            f"USER'S ORIGINAL REQUEST:\n{prompt}\n\n"
+            f"DRAFT RESPONSE:\n{draft}\n\n"
+            f"Review whether this draft delivers what the user asked for. Be specific about what works and what needs improvement."
+        )
+        cr = gclient.models.generate_content(
+            model=CHAT_MODEL, contents=critique_input,
+            config=types.GenerateContentConfig(system_instruction=CRITIQUE_SYSTEM, temperature=0.3),
+        )
+        critique = cr.text or ""
 
-            if "REWRITE NEEDED" in critique.upper():
-                rw = gclient.models.generate_content(
-                    model=CHAT_MODEL,
-                    contents=f"Draft:\n{draft}\n\nCritique:\n{critique}\n\nRewrite fixing every FAIL. Return ONLY the revised script.",
-                    config=types.GenerateContentConfig(system_instruction=sys_prompt, temperature=1.0),
-                )
-                final = rw.text or draft
+        if "REWRITE NEEDED" in critique.upper():
+            rw = gclient.models.generate_content(
+                model=CHAT_MODEL,
+                contents=(
+                    f"The user asked:\n{prompt}\n\n"
+                    f"You wrote this draft:\n{draft}\n\n"
+                    f"Your creative director reviewed it:\n{critique}\n\n"
+                    f"Now rewrite fixing every issue. Keep what works. Return ONLY the improved response."
+                ),
+                config=types.GenerateContentConfig(system_instruction=sys_prompt, temperature=1.0),
+            )
+            final = rw.text or draft
 
     return {
         "response": final,
@@ -852,27 +783,34 @@ async def chat_stream(req: ChatRequest):
             critique = None
             final = draft
 
-            # Mode-aware two-pass critique
-            if req.two_pass and should_critique(prompt, mode, draft):
+            # Smart two-pass critique — passes user prompt so critic understands context
+            if req.two_pass and should_critique(draft):
                 yield f"data: {json.dumps({'stage': 'Pass 2: Critiquing draft...'})}\n\n"
 
-                critique_sys = get_critique_prompt_for_mode(mode or "q1")
-                if critique_sys:
-                    critique_input = f"DRAFT TO REVIEW:\n\n{draft}\n\nReview this draft against the criteria."
-                    cr = gclient.models.generate_content(
-                        model=CHAT_MODEL, contents=critique_input,
-                        config=types.GenerateContentConfig(system_instruction=critique_sys, temperature=0.3),
-                    )
-                    critique = cr.text or ""
+                critique_input = (
+                    f"USER'S ORIGINAL REQUEST:\n{prompt}\n\n"
+                    f"DRAFT RESPONSE:\n{draft}\n\n"
+                    f"Review whether this draft delivers what the user asked for. Be specific about what works and what needs improvement."
+                )
+                cr = gclient.models.generate_content(
+                    model=CHAT_MODEL, contents=critique_input,
+                    config=types.GenerateContentConfig(system_instruction=CRITIQUE_SYSTEM, temperature=0.3),
+                )
+                critique = cr.text or ""
 
-                    if "REWRITE NEEDED" in critique.upper():
-                        yield f"data: {json.dumps({'stage': 'Pass 3: Rewriting based on critique...'})}\n\n"
-                        rw = gclient.models.generate_content(
-                            model=CHAT_MODEL,
-                            contents=f"Draft:\n{draft}\n\nCritique:\n{critique}\n\nRewrite fixing every FAIL. Return ONLY the revised script.",
-                            config=types.GenerateContentConfig(system_instruction=sys_prompt, temperature=1.0),
-                        )
-                        final = rw.text or draft
+                if "REWRITE NEEDED" in critique.upper():
+                    yield f"data: {json.dumps({'stage': 'Pass 3: Rewriting based on critique...'})}\n\n"
+                    rw = gclient.models.generate_content(
+                        model=CHAT_MODEL,
+                        contents=(
+                            f"The user asked:\n{prompt}\n\n"
+                            f"You wrote this draft:\n{draft}\n\n"
+                            f"Your creative director reviewed it:\n{critique}\n\n"
+                            f"Now rewrite fixing every issue. Keep what works. Return ONLY the improved response."
+                        ),
+                        config=types.GenerateContentConfig(system_instruction=sys_prompt, temperature=1.0),
+                    )
+                    final = rw.text or draft
 
             # Save chat
             chat_id = req.chat_id or str(uuid.uuid4())
