@@ -9,7 +9,6 @@ import json
 import os
 from pathlib import Path
 
-import chromadb
 import streamlit as st
 from dotenv import load_dotenv
 from google import genai
@@ -17,7 +16,7 @@ from google.genai import types
 
 load_dotenv()
 
-# Import structured data tools
+# Import structured data tools — these read JSON directly, no embeddings needed
 from data_tools import (
     query_assets,
     get_asset_detail,
@@ -25,19 +24,12 @@ from data_tools import (
     get_opening_stats,
     get_writer_stats,
     get_leaderboard,
+    _load_assets,
+    _load_briefs,
+    SHOW_ALIASES,
 )
 
-CHROMA_DIR = Path(".tmp/chroma_db")
-COLLECTION = "ad_assets"
-BRIEFS_COLLECTION = "show_briefs"
-EMBED_MODEL = "gemini-embedding-001"
 CHAT_MODEL = "gemini-2.5-flash"
-TOP_K = 20
-BRIEF_TOP_K = 10            # how many show-brief chunks to pull when show is detected
-DOC_TRIM_CHARS = 1800       # trim per-doc text in prompt context (embeddings stay full)
-BRIEF_TRIM_CHARS = 1500     # trim per-brief-chunk in context
-QUERY_EXPANSIONS = 4        # how many sub-queries to generate for broader retrieval
-EXPANSION_MODEL = "gemini-2.5-flash"
 
 
 SYSTEM_PROMPT = """You are a senior creative director and script writer for Pocket FM, a vertical-drama audio app. You write ad scripts that run as Meta (Facebook/Instagram) video ads in the USA. Your job is to produce scripts that crack low CPIs — specifically under $2.50.
@@ -311,69 +303,41 @@ def get_gemini():
     return genai.Client(api_key=key)
 
 
-@st.cache_resource
-def get_collection():
-    if not CHROMA_DIR.exists():
-        st.error(f"No vector index at {CHROMA_DIR}. Run `python tools/build_index.py` first.")
-        st.stop()
-    client = chromadb.PersistentClient(path=str(CHROMA_DIR))
-    try:
-        return client.get_collection(COLLECTION)
-    except Exception:
-        st.error(f"Collection '{COLLECTION}' not found. Run build_index.py.")
-        st.stop()
-
-
-@st.cache_resource
-def get_briefs_collection():
-    """Returns the show_briefs collection, or None if it hasn't been built yet."""
-    if not CHROMA_DIR.exists():
-        return None
-    client = chromadb.PersistentClient(path=str(CHROMA_DIR))
-    try:
-        return client.get_collection(BRIEFS_COLLECTION)
-    except Exception:
-        return None
-
-
-@st.cache_resource
-def get_show_catalog(_briefs_coll):
-    """Return sorted list of (show_slug, show_name) pairs for routing."""
-    if _briefs_coll is None:
-        return []
-    sample = _briefs_coll.get(limit=20000, include=["metadatas"])
+@st.cache_data
+def get_show_catalog():
+    """Return sorted list of (show_slug, show_name) pairs from briefs JSON."""
+    briefs = _load_briefs()
     seen = {}
-    for m in sample.get("metadatas", []):
-        slug = m.get("show_slug")
+    for b in briefs:
+        slug = b.get("show_slug")
+        name = b.get("name") or b.get("anchor_text") or slug
         if slug and slug not in seen:
-            seen[slug] = m.get("show_name") or slug
+            seen[slug] = name
     return sorted(seen.items())
 
 
-@st.cache_resource
-def get_dataset_stats(_coll):
-    """Compute dataset-wide leaderboards once and cache them."""
-    sample = _coll.get(limit=10000, include=["metadatas"])
-    metas = sample.get("metadatas", [])
+@st.cache_data
+def get_dataset_stats():
+    """Compute dataset-wide leaderboards from assets JSON. No Chroma needed."""
+    from collections import defaultdict
+    assets = _load_assets()
 
-    def has_cpi(m): return m.get("cpi", -1) > 0
-    with_cpi = [m for m in metas if has_cpi(m)]
+    with_cpi = [a for a in assets if a.get("cpi") is not None and a["cpi"] > 0]
 
     # Top by CPI (lower = better)
-    top_cpi = sorted(with_cpi, key=lambda m: m["cpi"])[:25]
+    top_cpi = sorted(with_cpi, key=lambda a: a["cpi"])[:25]
     # Top by CTR*CTI (higher = better)
-    with_ctr = [m for m in metas if m.get("ctr_cti", -1) > 0]
-    top_ctr = sorted(with_ctr, key=lambda m: -m["ctr_cti"])[:25]
+    with_ctr = [a for a in assets if a.get("ctr_cti") is not None and a["ctr_cti"] > 0]
+    top_ctr = sorted(with_ctr, key=lambda a: -a["ctr_cti"])[:25]
     # Scaled-to-growth winners
-    scaled = [m for m in with_cpi if m.get("is_active_growth")]
-    scaled.sort(key=lambda m: m["cpi"])
+    scaled = [a for a in with_cpi if a.get("is_active_growth")]
+    scaled.sort(key=lambda a: a["cpi"])
 
     # Per-IP avg CPI (min 3 tests)
-    from collections import defaultdict
     by_ip = defaultdict(list)
-    for m in with_cpi:
-        if m.get("ip"):
-            by_ip[m["ip"]].append(m["cpi"])
+    for a in with_cpi:
+        if a.get("ip"):
+            by_ip[a["ip"]].append(a["cpi"])
     ip_leader = sorted(
         [(ip, sum(v) / len(v), len(v)) for ip, v in by_ip.items() if len(v) >= 3],
         key=lambda x: x[1],
@@ -381,9 +345,9 @@ def get_dataset_stats(_coll):
 
     # Per-writer avg CPI
     by_writer = defaultdict(list)
-    for m in with_cpi:
-        if m.get("writer"):
-            by_writer[m["writer"]].append(m["cpi"])
+    for a in with_cpi:
+        if a.get("writer"):
+            by_writer[a["writer"]].append(a["cpi"])
     writer_leader = sorted(
         [(w, sum(v) / len(v), len(v)) for w, v in by_writer.items() if len(v) >= 5],
         key=lambda x: x[1],
@@ -396,15 +360,25 @@ def get_dataset_stats(_coll):
     )
 
     return {
-        "total_tests": len(metas),
+        "total_tests": len(assets),
         "total_with_cpi": len(with_cpi),
-        "top_cpi": top_cpi,
-        "top_ctr": top_ctr,
-        "scaled_winners": scaled[:25],
+        "top_cpi": [{k: a.get(k) for k in ("ad_code", "cpi", "ip", "genre", "opening", "is_active_growth", "ctr_cti")} for a in top_cpi],
+        "top_ctr": [{k: a.get(k) for k in ("ad_code", "cpi", "ip", "genre", "opening", "ctr_cti")} for a in top_ctr],
+        "scaled_winners": [{k: a.get(k) for k in ("ad_code", "cpi", "ip", "style", "opening", "is_active_growth")} for a in scaled[:25]],
         "ip_leader": ip_leader,
         "ip_volume": ip_volume,
         "writer_leader": writer_leader,
     }
+
+
+def unique_ip_values():
+    """Get unique IP/genre/style/writer values from assets JSON for sidebar dropdowns."""
+    assets = _load_assets()
+    result = {}
+    for field in ("genre", "ip", "style", "writer"):
+        vals = sorted({str(a.get(field) or "") for a in assets if a.get(field)})
+        result[field] = [v for v in vals if v][:50]
+    return result
 
 
 def format_stats_block(stats):
@@ -797,239 +771,6 @@ def new_project_id():
     return datetime.datetime.now().strftime("%Y%m%d_%H%M%S_") + os.urandom(2).hex()
 
 
-# ---------- retrieval (RAG fallback) ----------
-
-def embed_query(gclient, text):
-    resp = gclient.models.embed_content(
-        model=EMBED_MODEL,
-        contents=[text],
-        config=types.EmbedContentConfig(task_type="RETRIEVAL_QUERY"),
-    )
-    return resp.embeddings[0].values
-
-
-def expand_query(gclient, query, n=QUERY_EXPANSIONS):
-    """Turn a user query into N semantic variants for broader retrieval coverage."""
-    prompt = f"""Expand this ad-copywriting query into {n} diverse retrieval angles. Each angle should explore a different aspect: structural pattern, emotional angle, genre/IP, specific tropes, etc. Return ONLY a JSON array of {n} short strings, nothing else.
-
-Query: {query}
-
-JSON array:"""
-    try:
-        resp = gclient.models.generate_content(
-            model=EXPANSION_MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(temperature=0.5, response_mime_type="application/json"),
-        )
-        arr = json.loads(resp.text)
-        if isinstance(arr, list) and arr:
-            return [query] + [str(x) for x in arr[:n]]
-    except Exception as e:
-        print(f"expand_query failed: {e}")
-    return [query]
-
-
-def build_where(filters):
-    clauses = []
-    if filters.get("genre"):
-        clauses.append({"genre": filters["genre"]})
-    if filters.get("ip"):
-        clauses.append({"ip": filters["ip"]})
-    if filters.get("style"):
-        clauses.append({"style": filters["style"]})
-    if filters.get("writer"):
-        clauses.append({"writer": filters["writer"]})
-    if filters.get("min_cpi") is not None:
-        clauses.append({"cpi": {"$gte": float(filters["min_cpi"])}})
-    if filters.get("max_cpi") is not None:
-        clauses.append({"cpi": {"$lte": float(filters["max_cpi"])}})
-    if filters.get("active_only"):
-        clauses.append({"is_active_growth": True})
-    if not clauses:
-        return None
-    return clauses[0] if len(clauses) == 1 else {"$and": clauses}
-
-
-def retrieve(gclient, coll, query, filters, k=TOP_K, use_multi_query=True):
-    where = build_where(filters)
-    queries = expand_query(gclient, query) if use_multi_query else [query]
-
-    # Per-query retrieval — fewer results each, merged + deduped
-    per_q = max(6, k // max(1, len(queries) - 1))
-    merged = {}
-    for q in queries:
-        emb = embed_query(gclient, q)
-        result = coll.query(query_embeddings=[emb], n_results=per_q, where=where)
-        if not result["ids"] or not result["ids"][0]:
-            continue
-        for i in range(len(result["ids"][0])):
-            _id = result["ids"][0][i]
-            dist = result["distances"][0][i]
-            if _id not in merged or dist < merged[_id]["distance"]:
-                merged[_id] = {
-                    "id": _id,
-                    "doc": result["documents"][0][i],
-                    "meta": result["metadatas"][0][i],
-                    "distance": dist,
-                }
-
-    # Rank by composite score: semantic relevance + performance quality
-    # Lower distance = more relevant, lower CPI = better performer, growth = bonus
-    for h in merged.values():
-        cpi = h["meta"].get("cpi", -1)
-        is_growth = h["meta"].get("is_active_growth", False)
-        # Normalize: distance is typically 0.3-1.5 for cosine; CPI 1-20
-        dist_score = h["distance"]  # lower = better
-        perf_bonus = 0.0
-        if cpi > 0:
-            # Top performers (CPI < 2.5) get a significant boost
-            if cpi < 2.0:
-                perf_bonus = -0.15
-            elif cpi < 2.5:
-                perf_bonus = -0.10
-            elif cpi < 3.5:
-                perf_bonus = -0.05
-            elif cpi > 6.0:
-                perf_bonus = 0.05  # penalize weak performers slightly
-        if is_growth:
-            perf_bonus -= 0.12  # strong boost for growth-promoted assets
-        h["rank_score"] = dist_score + perf_bonus
-
-    hits = sorted(merged.values(), key=lambda h: h["rank_score"])[:k]
-    return hits, queries
-
-
-def detect_shows(gclient, query, catalog):
-    """
-    Given a user query, figure out which show(s) from the catalog are relevant.
-    Uses the LLM as a classifier — more robust than keyword matching because show
-    names have tons of aliases (M3VW = "My Three Vampire Wives", TAB = "The Alpha's Bride", etc.)
-    Returns list of show_slugs, possibly empty.
-    """
-    if not catalog:
-        return []
-    slug_list = "\n".join(f"- {slug} ({name})" for slug, name in catalog)
-    prompt = f"""A user is asking about an ad for a vertical drama show. Here are all the shows we have deep context on:
-
-{slug_list}
-
-User query: {query}
-
-Return a JSON array of show_slugs that are directly relevant to the query (most specific match first). If the query doesn't mention or imply any specific show, return an empty array [].
-
-SHOW ALIAS TABLE (abbreviation → slug in our database → full show name):
-- TAB = any slug starting with "tab" → "The Alpha's Bride" (our #1 IP by volume, 2,094 ads)
-- TOLR = any slug starting with "tolr" → "Twists of Love & Revenge"
-- WBM / WOBM = any slug starting with "wbm" or "wobm" → "Wolves of Blood Moon"
-- AQB = any slug starting with "aqb" → "A Queen Betrayed"
-- M3VW = "new_m3vw" → "My Three Vampire Wives"
-- TAM = "tam_promo_2" → "The Alpha's Mark"
-- ROF = any slug containing "rof" → "Rage of Fate"
-- FITP = any slug containing "fitp" → "Fire in the Palace"
-- BTS = "bts_script_brief" → "Behind the Scenes" (production brief)
-- CBF = any slug containing "cbf" → "Caught Between Fangs"
-- "Crushed" / "C&C" = "crushed_crowned" → "Crushed & Crowned"
-- "Damon" / "Damon's Dream" = "damon_s_dream" → sub-arc of The Alpha's Bride
-- "Second Chance Luna" = "tab_second_chance_luna" → sub-arc of The Alpha's Bride
-- "Magic Mirror" = "magic_mirror" or "magic_mirror_2" → sub-arc of The Alpha's Bride
-- "Fate Never Forgets" = "fate_never_forgets" → sub-arc of The Alpha's Bride
-- "ZOO Princess" = "wbm_zoo_princess" → sub-arc of Wolves of Blood Moon
-- "Lunaris Rush" = "wbm_lunaris_rush" → sub-arc of Wolves of Blood Moon
-
-Rules:
-- When user mentions ANY of these abbreviations or show names, return the matching slug(s).
-- TAB sub-arcs (Damon's Dream, Second Chance Luna, Magic Mirror, Broken Necklace, Rogue Witch, Fate Never Forgets) should return BOTH the sub-arc slug AND the parent TAB slugs if any exist.
-- If user asks about a genre (werewolf, romance) without naming a show, return [].
-- Max 3 slugs.
-
-JSON array only:"""
-    try:
-        resp = gclient.models.generate_content(
-            model=EXPANSION_MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(temperature=0.0, response_mime_type="application/json"),
-        )
-        arr = json.loads(resp.text)
-        if isinstance(arr, list):
-            valid_slugs = {s for s, _ in catalog}
-            return [str(x) for x in arr if str(x) in valid_slugs][:3]
-    except Exception as e:
-        print(f"detect_shows failed: {e}")
-    return []
-
-
-def retrieve_brief_chunks(gclient, briefs_coll, query, show_slugs, k=BRIEF_TOP_K):
-    """Retrieve show brief chunks, optionally filtered to specific show(s)."""
-    if briefs_coll is None:
-        return []
-    emb = embed_query(gclient, query)
-    where = None
-    if show_slugs:
-        if len(show_slugs) == 1:
-            where = {"show_slug": show_slugs[0]}
-        else:
-            where = {"show_slug": {"$in": show_slugs}}
-    try:
-        result = briefs_coll.query(query_embeddings=[emb], n_results=k, where=where)
-    except Exception as e:
-        print(f"brief query failed: {e}")
-        return []
-    hits = []
-    if not result.get("ids") or not result["ids"][0]:
-        return hits
-    for i in range(len(result["ids"][0])):
-        hits.append({
-            "id": result["ids"][0][i],
-            "doc": result["documents"][0][i],
-            "meta": result["metadatas"][0][i],
-            "distance": result["distances"][0][i],
-        })
-    return hits
-
-
-def format_show_context(brief_hits):
-    if not brief_hits:
-        return ""
-    lines = ["=" * 70, f"SHOW CONTEXT ({len(brief_hits)} chunks from show briefs + 10HR base stories)", "=" * 70]
-    for i, h in enumerate(brief_hits, 1):
-        m = h["meta"]
-        lines.append(
-            f"\n[SB{i}] {m.get('show_name','?')} | {m.get('doc_type','?')} | chunk {m.get('chunk_idx','?')}"
-            f"\nsource: {m.get('doc_name','?')}"
-        )
-        lines.append(h["doc"][:BRIEF_TRIM_CHARS])
-    lines.append("\n" + "=" * 70)
-    return "\n".join(lines)
-
-
-def format_context(hits):
-    lines = ["=" * 70, f"PAST TESTS ({len(hits)} most relevant to the user's request)", "=" * 70]
-    for i, h in enumerate(hits, 1):
-        m = h["meta"]
-        cpi = f"${m['cpi']:.2f}" if m.get("cpi", -1) >= 0 else "?"
-        ctr = f"{m['ctr_cti']:.2f}%" if m.get("ctr_cti", -1) >= 0 else "?"
-        scale = " [SCALED TO GROWTH]" if m.get("is_active_growth") else ""
-        lines.append(
-            f"\n[{i}] {m.get('ad_code','?')} | {m.get('genre','?')} / {m.get('ip','?')} / {m.get('style','?')}"
-            f" | CPI {cpi} | CTR*CTI {ctr}{scale}"
-        )
-        lines.append(h["doc"][:DOC_TRIM_CHARS])
-    lines.append("\n" + "=" * 70)
-    return "\n".join(lines)
-
-
-# ---------- UI ----------
-
-def unique_values(coll, field, limit=50):
-    """Sample metadata values. Chroma doesn't expose distinct — peek a sample."""
-    try:
-        sample = coll.get(limit=5000, include=["metadatas"])
-        vals = sorted({str(m.get(field) or "") for m in sample["metadatas"] if m.get(field)})
-        return [v for v in vals if v][:limit]
-    except Exception:
-        return []
-
-
 # ---------- chat persistence ----------
 
 CHATS_DIR = Path(".tmp/chats")
@@ -1197,10 +938,9 @@ st.markdown(
 # ---------- init clients + state ----------
 
 gclient = get_gemini()
-coll = get_collection()
-briefs_coll = get_briefs_collection()
-show_catalog = get_show_catalog(briefs_coll)
-stats = get_dataset_stats(coll)
+show_catalog = get_show_catalog()
+stats = get_dataset_stats()
+dropdown_values = unique_ip_values()
 stats_block = format_stats_block(stats)
 
 if "chats" not in st.session_state:
@@ -1342,10 +1082,10 @@ with st.sidebar:
             st.rerun()
 
     st.divider()
-    brief_count = briefs_coll.count() if briefs_coll is not None else 0
-    st.caption(f"📚 {coll.count()} ad tests indexed")
+    brief_count = len(_load_briefs())
+    st.caption(f"📚 {stats['total_tests']} ad tests loaded")
     if brief_count:
-        st.caption(f"🎬 {brief_count} brief chunks · {len(show_catalog)} shows")
+        st.caption(f"🎬 {brief_count} show briefs · {len(show_catalog)} shows")
     fb_count = len(load_feedback())
     if fb_count:
         st.caption(f"📊 {fb_count} feedback entries logged")
