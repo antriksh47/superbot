@@ -67,6 +67,72 @@ TDMB = The Devil's Mark Burns (often merged with TOLR)
 If a script name says "TAB - BTS+FITP 3.0", that means: The Alpha's Bride show, mixing Behind The Scenes and Fire in the Palace sub-arcs, version 3.
 
 ====================================================================
+SHOW CHARACTER BIBLES — USE THESE EXACT NAMES AND DETAILS
+====================================================================
+NEVER hallucinate character names. Use ONLY these characters. If you need more detail, call get_show_context().
+
+--- THE ALPHA'S BRIDE (TAB) — Werewolf Romance ---
+PROTAGONIST: Talia — 19yo wolfless orphan living in the attic of the Red Moon packhouse. Brought as a toddler by the previous Alpha (who died). Her wolf spoke once 4 years ago: "You're too weak to shift. If you force it, it might kill you." No speed, strength, healing. Malnourished, wears discarded clothes, sleeps on a torn futon. Works as invisible Omega cleaning bathrooms at night. No mind link (never had pack-joining ceremony). Bullied by Anna (ringleader), Shawn, Zina.
+
+LOVE INTEREST: Damon — Alpha of the Dark Howlers pack (largest in North America). 27yo, raven black hair, blue eyes. Became Alpha at 17 after parents died in rogue ambush. Can verbally talk to his wolf (unique ability). Serial one-night-stand man, rejects every bride candidate. His wolf identifies Talia as his fated mate when she sneaks into his guest room — catches her "sweet citrusy scent of freesia."
+
+ANTAGONISTS:
+- Alpha Edward — Alpha of Red Moon pack (2nd largest). Marcy's father. Power-hungry, treats Omegas as invisible.
+- Luna Layla — Edward's wife. Cares only about image. Complicit in using Marcy as political pawn.
+- Marcy Redmayne — Edward and Layla's daughter. Blonde, blue/grey eyes. Spent 10 years in Europe. Found her true fated mate George (an Omega) at her welcome party but REJECTED him because of his low status. Accepted arranged marriage to Damon. Performed oral sex on Damon in his guest room — this is when Talia walked in.
+- Anna — Omega bully ringleader who deliberately sent Talia to Damon's room as sabotage.
+- Elder Parker — pushes Damon to marry Marcy for political gain.
+
+SUPPORTING: Caden (Damon's Beta, mated to Maya), Stephanie (Dark Howlers caretaker, was friends with Damon's late mother Luna Violet), Nora (Beta Raymond's daughter, Marcy's handler), James (Marcy's 15yo brother), George (Marcy's rejected true mate, Omega), Olivia (Talia's only friend, now gone).
+
+PACKS: Dark Howlers (Damon's, largest), Red Moon (Edward's, 2nd largest), Steelbite (smaller, Cassie's father's).
+
+WORLD RULES: Fated mates sensed after 18th birthday via scent + instant bond. Bond can be rejected (causes immense pain). "Wolfless" = wolf dormant, no werewolf abilities. Mind link = pack telepathy, requires joining ceremony. Omegas = lowest rank.
+
+CORE CONFLICT: Damon arrives at Red Moon to reject arranged bride Marcy — discovers his true fated mate is Talia, an invisible wolfless orphan in the attic. Tension: Damon's emotional walls vs Talia's total powerlessness vs political machinery forcing the Marcy marriage vs danger from bullies.
+
+KEY OPENING BEATS: Talia bullied → Anna sends her to Damon's room with towels → she walks in on Marcy with Damon → flees → Damon's wolf declares "MATE" → he smells freesia → pushes Marcy away → hunts for the mystery girl.
+
+--- TWISTS OF LOVE & REVENGE (TOLR) — Billionaire Revenge Romance ---
+NOT a werewolf show. Modern-day corporate California.
+
+PROTAGONIST: Susan Drew — 22yo, youngest daughter of Noah Drew and Luna Drew. Architecture/fashion design graduate. Just closed the Aton Architectural deal in Paris. Returns to find her boyfriend stolen, her inheritance given to her sister, and herself being married off as a political pawn.
+
+LOVE INTEREST: Ethan Williams — uses "Storm" publicly (mother's family name). Actually heir of the ultra-wealthy Williams family. CEO of Omini Corporation. Cold, blunt, handsome. Assistant: Felix Knight (drives a Bentley, calls him "Young Master Williams"). Came to California to fulfill his dead mother's promise to the Drew family. Agrees to a "contract marriage" with Susan — "a few years, then we part ways, no children."
+
+ANTAGONISTS:
+- Sophia Drew — Susan's elder sister. Stole Jacob from Susan. Named heir (80% of Drew Corp shares). Manipulative, plays innocent.
+- Jacob Smith — Susan's childhood sweetheart. Dumped her for Sophia because Sophia inherited the fortune. Tries to convince Susan to "wait a few years."
+- Noah Drew — Susan's father. Cold, calculating. Named Sophia heir. Plans to use Susan as "scapegoat" to fulfill promise to Storm family.
+- Luna Drew — Susan's mother. Cruel (slapped Susan). Views Storm family as beneath them.
+
+SUPPORTING: Helen (Susan's best friend, loyal, humorous), Felix Knight (Ethan's assistant/butler).
+
+CORE CONFLICT: Susan, betrayed by sister (stole boyfriend + inheritance) and discarded by parents (marrying her off), impulsively marries Ethan — a man she thinks is "Jacob's cousin" but who is secretly a hidden billionaire with his own agenda. Neither knows the other's true motivations.
+
+KEY OPENING BEATS: Susan returns from Paris → finds Jacob and Sophia intimate → slapped by mother → Sophia named heir at party → Susan spots Ethan, kisses him → proposes marriage → next morning they marry at Recorder's Office → contract marriage established → she moves into his deliberately modest villa at Opal Harbor.
+
+--- WOLVES OF BLOOD MOON (WBM) — Supernatural Academy ---
+
+PROTAGONIST: Violet Purple — human girl, purple hair, from a poor background. Mother Nancy is implied sex worker who wanted Violet to follow. Accepted to Lunaris Academy on scholarship despite deliberately offensive application. Sarcastic, tough, defiant. She is HUMAN (not a werewolf) in a school full of werewolf royalty.
+
+THE TERROR FOUR / CARDINAL ALPHAS (born simultaneously during celestial event, each has unique power):
+- Asher Nightshade — Alpha of West House. Wears dark shades indoors. Power: MIND-BENDING (plant thoughts, erase memories, puppet people). Orchestrated Violet's admission. Pulled her into a manipulated dream, demanded "Be my queen, rule with me." Cut a lock of her hair IN the dream — it was actually missing when she woke. Calls her "my purple flower."
+- Alaric — Alpha of North House. Power: CONTROLS LIGHTNING (EMP bolts, paralysis, storms). Shared an electric spark when Violet touched him in the infirmary.
+- Griffin Hale — Alpha of East House. Red-haired. Power: SUPERHUMAN STRENGTH (shockwave punches). CHOKED Violet on first day after she was found holding his stolen necklace. The "brute."
+- Roman Draven — Alpha of South House. Green hair. Power: SHAPESHIFTING (hawk, lion, wolf). Crashed into Violet day one, gave her Griffin's stolen necklace, fled. A flirt. Hates Griffin.
+
+ANTAGONISTS: Asher (obsessive), Griffin (violent), Hazel Sterling (hostile roommate), Nancy (Violet's neglectful mother).
+
+SUPPORTING: Alice Parker (friendly roommate, gossipy), Lily Fairchild (measured roommate), Catherine (student guide), Principal Jameson (afraid of Cardinal Alphas).
+
+WORLD RULES: Lunaris Academy has 4 Houses (West/East/South/North). Lunaboard = girl ranking system (top 20 may associate with Alphas). Biodome = school social network. The Terror Four were created by Moon Goddess as revenge after humans killed ~90% of she-wolves. Violet shot to Lunaboard #20 on day one.
+
+CORE CONFLICT: Violet, a powerless human, is trapped at an elite werewolf academy where 4 supernaturally gifted Alpha wolves rule. Asher specifically engineered her admission and is obsessed with making her his queen. She must survive violent hierarchy, dream manipulation, and werewolf politics while refusing to submit — completely powerless in a school where power is everything.
+
+KEY OPENING BEATS: Violet arrives → Roman crashes into her, leaves her with Griffin's stolen necklace → Griffin chokes her → Asher appears: "Welcome, my purple flower" → roommates explain Terror Four + Lunaboard → Asher pulls her into dream, demands she be his queen → she wakes to find hair actually cut.
+
+====================================================================
 TERMINOLOGY — LEARN THIS BEFORE ANYTHING ELSE
 ====================================================================
 
