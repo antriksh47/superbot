@@ -13,10 +13,11 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
+import io
 
 load_dotenv()
 
@@ -421,6 +422,178 @@ async def submit_feedback(req: FeedbackRequest):
     })
     FEEDBACK_PATH.parent.mkdir(parents=True, exist_ok=True)
     FEEDBACK_PATH.write_text(json.dumps(fb, indent=2))
+    return {"ok": True}
+
+
+@app.post("/api/upload")
+async def upload_file(file: UploadFile = File(...)):
+    """Extract text from an uploaded file."""
+    data = await file.read()
+    name = (file.filename or "unknown").lower()
+    text = ""
+    ftype = "unknown"
+
+    if name.endswith((".txt", ".md", ".csv", ".srt")):
+        text = data.decode("utf-8", errors="ignore")
+        ftype = "text"
+    elif name.endswith(".json"):
+        text = data.decode("utf-8", errors="ignore")
+        ftype = "json"
+    elif name.endswith(".docx"):
+        try:
+            import docx
+            doc = docx.Document(io.BytesIO(data))
+            text = "\n".join(p.text for p in doc.paragraphs)
+            ftype = "document"
+        except Exception as e:
+            text = f"(failed to parse docx: {e})"
+            ftype = "error"
+    elif name.endswith(".pdf"):
+        try:
+            from pypdf import PdfReader
+            reader = PdfReader(io.BytesIO(data))
+            text = "\n".join(p.extract_text() or "" for p in reader.pages)
+            ftype = "document"
+        except Exception as e:
+            text = f"(failed to parse pdf: {e})"
+            ftype = "error"
+    elif name.endswith((".xlsx", ".xls")):
+        try:
+            import pandas as pd
+            df = pd.read_excel(io.BytesIO(data))
+            text = df.to_csv(index=False)
+            ftype = "spreadsheet"
+        except Exception as e:
+            text = f"(failed to parse excel: {e})"
+            ftype = "error"
+    elif name.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
+        text = f"[Image: {file.filename}, {len(data)} bytes]"
+        ftype = "image"
+    else:
+        text = data.decode("utf-8", errors="ignore")[:10000]
+
+    return {
+        "name": file.filename,
+        "type": ftype,
+        "text": text[:15000],
+        "char_count": len(text),
+    }
+
+
+@app.post("/api/chat/stream")
+async def chat_stream(req: ChatRequest):
+    """SSE endpoint that sends stage updates during generation."""
+    import asyncio
+
+    prompt = req.message
+    if req.file_context:
+        prompt = f"{req.file_context}\n\n{prompt}"
+
+    async def generate():
+        try:
+            # Stage 1: Tool calling
+            yield f"data: {json.dumps({'stage': 'Querying data tools...'})}\n\n"
+
+            messages = [
+                types.Content(role="user", parts=[types.Part(text=f"{STATS_BLOCK}\n\nUSER REQUEST:\n{prompt}")]),
+            ]
+            tool_log = []
+
+            for round_num in range(4):
+                response = gclient.models.generate_content(
+                    model=CHAT_MODEL, contents=messages,
+                    config=types.GenerateContentConfig(
+                        system_instruction=SYSTEM_PROMPT, temperature=1.0, tools=GEMINI_TOOLS,
+                    ),
+                )
+                func_calls = []
+                text_parts = []
+                for candidate in response.candidates:
+                    for part in candidate.content.parts:
+                        if hasattr(part, 'function_call') and part.function_call:
+                            func_calls.append(part.function_call)
+                        elif hasattr(part, 'text') and part.text:
+                            text_parts.append(part.text)
+
+                if not func_calls:
+                    break
+
+                for fc in func_calls:
+                    args = dict(fc.args) if fc.args else {}
+                    tool_log.append({"tool": fc.name, "args": args})
+                    yield f"data: {json.dumps({'stage': f'Calling {fc.name}...'})}\n\n"
+                    fn = TOOL_FUNCTIONS.get(fc.name)
+                    result = fn(**args) if fn else {"error": f"Unknown: {fc.name}"}
+                    result = truncate_result(result)
+                    messages.append(response.candidates[0].content)
+                    messages.append(types.Content(role="user", parts=[
+                        types.Part.from_function_response(name=fc.name, response=result)
+                    ]))
+
+            draft = "".join(text_parts)
+            critique = None
+            final = draft
+
+            # Two-pass
+            gen_keywords = ["write", "generate", "create", "give me", "q1", "opening", "hook", "script", "draft"]
+            is_generation = any(kw in prompt.lower() for kw in gen_keywords)
+
+            if req.two_pass and is_generation and len(draft) > 200:
+                yield f"data: {json.dumps({'stage': 'Pass 2: Critiquing draft...'})}\n\n"
+
+                critique_prompt = f"""Review this draft Q1 script. For each criterion score PASS or FAIL:
+1. SHOCK HOOK  2. TRAGIC BACKSTORY  3. NAMED ABUSE  4. IDENTITY REVEAL
+5. FATED MATE + CLIFFHANGER  6. WORD COUNT (430-550)  7. FEMALE PROTAGONIST
+8. VOICE  9. PACING  10. DIALOGUE
+DRAFT:\n{draft}\nEnd with VERDICT: PASS or REWRITE NEEDED."""
+
+                cr = gclient.models.generate_content(
+                    model=CHAT_MODEL, contents=critique_prompt,
+                    config=types.GenerateContentConfig(temperature=0.3),
+                )
+                critique = cr.text or ""
+
+                if "REWRITE NEEDED" in critique.upper():
+                    yield f"data: {json.dumps({'stage': 'Pass 3: Rewriting based on critique...'})}\n\n"
+                    rw = gclient.models.generate_content(
+                        model=CHAT_MODEL,
+                        contents=f"Draft:\n{draft}\n\nCritique:\n{critique}\n\nRewrite fixing every FAIL. Return ONLY the revised script.",
+                        config=types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT, temperature=1.0),
+                    )
+                    final = rw.text or draft
+
+            # Save chat
+            chat_id = req.chat_id or str(uuid.uuid4())
+            chat_path = CHATS_DIR / f"{chat_id}.json"
+            CHATS_DIR.mkdir(parents=True, exist_ok=True)
+            if chat_path.exists():
+                chat_data = json.loads(chat_path.read_text())
+            else:
+                chat_data = {"id": chat_id, "title": "", "messages": [], "project_id": req.project_id}
+            chat_data["messages"].append({"role": "user", "content": req.message})
+            chat_data["messages"].append({
+                "role": "assistant", "content": final,
+                "tool_log": tool_log,
+                "draft": draft if critique else None,
+                "critique": critique,
+            })
+            if not chat_data["title"]:
+                chat_data["title"] = req.message[:50]
+            chat_path.write_text(json.dumps(chat_data, default=str))
+
+            yield f"data: {json.dumps({'done': True, 'chat_id': chat_id, 'response': final, 'draft': draft if critique else None, 'critique': critique, 'tool_log': tool_log})}\n\n"
+
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+@app.delete("/api/projects/{project_id}")
+async def delete_project_endpoint(project_id: str):
+    p = PROJECTS_DIR / f"{project_id}.json"
+    if p.exists():
+        p.unlink()
     return {"ok": True}
 
 
