@@ -1018,293 +1018,110 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&display=swap');
-
     /* ═══════════════════════════════════════════
-       ChatGPT-replica design system
-       Font: Inter (closest to Söhne)
-       Colors: exact ChatGPT palette
+       Stable, clean design — works WITH Streamlit, not against it.
+       Uses config.toml for sidebar color + primary color.
+       CSS only for what Streamlit can't theme natively.
        ═══════════════════════════════════════════ */
 
-    /* ── Reset & global ── */
-    html, body, [class*="css"],
-    .stMarkdown, .stMarkdown p, .stMarkdown li, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3,
-    button, input, textarea, select, label, span {
-        font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif !important;
-    }
+    /* Hide chrome */
     #MainMenu, footer { display: none !important; }
-    header[data-testid="stHeader"] { display: none !important; }
 
-    /* ── Main chat area ── */
-    .stApp { background: #ffffff; }
-    .block-container {
-        max-width: 48rem;
-        padding: 0 1rem 6rem 1rem !important;
-        margin: 0 auto;
-    }
-
-    /* ══════════════ SIDEBAR ══════════════ */
-    [data-testid="stSidebar"] {
-        background-color: #202123 !important;
-        border-right: none !important;
-    }
-    [data-testid="stSidebar"] > div:first-child {
-        padding-top: 0.75rem;
-    }
-    /* Sidebar text — light on dark */
-    [data-testid="stSidebar"] h1,
-    [data-testid="stSidebar"] h2,
-    [data-testid="stSidebar"] h3,
-    [data-testid="stSidebar"] h4,
-    [data-testid="stSidebar"] h5,
-    [data-testid="stSidebar"] p,
+    /* Sidebar text colors on dark background (bg set via config.toml) */
+    [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2,
+    [data-testid="stSidebar"] h3, [data-testid="stSidebar"] h4,
+    [data-testid="stSidebar"] h5, [data-testid="stSidebar"] p,
     [data-testid="stSidebar"] label,
     [data-testid="stSidebar"] .stMarkdown p,
     [data-testid="stSidebar"] .stMarkdown span {
         color: #ececf1 !important;
     }
-    [data-testid="stSidebar"] small,
-    [data-testid="stSidebar"] .stCaption,
     [data-testid="stSidebar"] [data-testid="stCaptionContainer"] {
         color: #8e8ea0 !important;
     }
 
-    /* Sidebar buttons — chat history items */
+    /* Sidebar buttons */
     [data-testid="stSidebar"] .stButton > button {
         background: transparent !important;
         border: 1px solid transparent !important;
         color: #ececf1 !important;
         text-align: left !important;
-        padding: 0.5rem 0.75rem !important;
         border-radius: 0.5rem !important;
         font-size: 0.875rem !important;
-        font-weight: 400 !important;
-        transition: background 0.15s ease;
-        width: 100%;
     }
     [data-testid="stSidebar"] .stButton > button:hover {
         background: #2a2b32 !important;
     }
-
-    /* New chat button — bordered, ChatGPT style */
     .new-chat-btn .stButton > button {
-        background: transparent !important;
         border: 1px solid #565869 !important;
-        color: #ececf1 !important;
-        font-weight: 500 !important;
-        border-radius: 0.5rem !important;
-        padding: 0.65rem 0.75rem !important;
-    }
-    .new-chat-btn .stButton > button:hover {
-        background: #2a2b32 !important;
-    }
-
-    /* Sidebar divider */
-    [data-testid="stSidebar"] hr {
-        border-color: #353740 !important;
-        margin: 0.5rem 0 !important;
-    }
-
-    /* Sidebar expanders */
-    [data-testid="stSidebar"] .streamlit-expanderHeader {
-        color: #acacbe !important;
-        font-size: 0.8rem !important;
         font-weight: 500 !important;
     }
-    [data-testid="stSidebar"] .streamlit-expanderContent {
-        background: transparent !important;
-    }
 
-    /* Sidebar inputs — keep readable on dark bg */
+    /* Sidebar inputs on dark bg */
     [data-testid="stSidebar"] input,
-    [data-testid="stSidebar"] textarea,
-    [data-testid="stSidebar"] [data-baseweb="select"] {
+    [data-testid="stSidebar"] textarea {
         background: #40414f !important;
         color: #ececf1 !important;
         border-color: #565869 !important;
-        border-radius: 0.375rem !important;
-    }
-    [data-testid="stSidebar"] [data-baseweb="select"] span {
-        color: #ececf1 !important;
     }
     [data-testid="stSidebar"] input::placeholder {
         color: #8e8ea0 !important;
     }
-
-    /* Sidebar checkboxes */
     [data-testid="stSidebar"] [data-testid="stCheckbox"] label span {
         color: #c5c5d2 !important;
     }
-
-    /* ══════════════ CHAT MESSAGES ══════════════ */
-    [data-testid="stChatMessage"] {
-        background: transparent !important;
-        border: none !important;
-        padding: 1.5rem 0 !important;
-        max-width: 48rem;
-        margin: 0 auto;
+    [data-testid="stSidebar"] hr {
+        border-color: #353740 !important;
     }
-    [data-testid="stChatMessageContent"] {
-        font-size: 1rem !important;
-        line-height: 1.75 !important;
-        color: #353740 !important;
-    }
-    [data-testid="stChatMessageContent"] p {
-        margin-bottom: 0.75rem;
-    }
-    [data-testid="stChatMessageContent"] li {
-        margin-bottom: 0.25rem;
-    }
-    [data-testid="stChatMessageContent"] code {
-        background: #f7f7f8;
-        padding: 0.15rem 0.4rem;
-        border-radius: 0.25rem;
-        font-size: 0.9rem;
-    }
-    [data-testid="stChatMessageContent"] pre {
-        background: #1e1e1e !important;
-        color: #d4d4d4 !important;
-        border-radius: 0.5rem;
-        padding: 1rem !important;
-        font-size: 0.875rem;
+    [data-testid="stSidebar"] .streamlit-expanderHeader {
+        color: #acacbe !important;
+        font-size: 0.8rem !important;
     }
 
-    /* User messages — gray band like ChatGPT */
-    [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) {
-        background: #f7f7f8 !important;
-        border-radius: 0 !important;
-        padding: 1.5rem 1rem !important;
-        margin-left: -1rem;
-        margin-right: -1rem;
-    }
-
-    /* Avatars */
-    [data-testid="stChatMessage"] [data-testid="chatAvatarIcon-assistant"] {
-        background: #10a37f !important;
-        color: white !important;
-    }
-    [data-testid="stChatMessage"] [data-testid="chatAvatarIcon-user"] {
-        background: #ab68ff !important;
-        color: white !important;
-    }
-
-    /* ══════════════ CHAT INPUT ══════════════ */
-    [data-testid="stChatInput"] {
-        position: fixed;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        background: white !important;
-        border-top: none !important;
-        padding: 0.75rem 1rem 1.25rem 1rem !important;
-        z-index: 999;
-    }
-    [data-testid="stChatInput"] > div {
-        max-width: 48rem;
-        margin: 0 auto;
-    }
+    /* Chat input — visible text, clean border */
     [data-testid="stChatInput"] textarea {
-        font-family: 'Inter', sans-serif !important;
-        font-size: 1rem !important;
         color: #353740 !important;
         background: #ffffff !important;
         border: 1px solid #d9d9e3 !important;
-        border-radius: 1.5rem !important;
-        padding: 0.75rem 1.25rem !important;
-        box-shadow: 0 0 15px rgba(0,0,0,0.05) !important;
-        resize: none !important;
-        min-height: 52px !important;
-        max-height: 200px !important;
+        border-radius: 1.25rem !important;
+        font-size: 0.95rem !important;
     }
     [data-testid="stChatInput"] textarea:focus {
         border-color: #10a37f !important;
-        box-shadow: 0 0 15px rgba(0,0,0,0.05), 0 0 0 2px rgba(16,163,127,0.15) !important;
-        outline: none !important;
+        box-shadow: 0 0 0 2px rgba(16,163,127,0.15) !important;
     }
     [data-testid="stChatInput"] textarea::placeholder {
         color: #8e8ea0 !important;
     }
-    /* Send button */
-    [data-testid="stChatInput"] button {
-        background: #10a37f !important;
-        color: white !important;
-        border: none !important;
-        border-radius: 0.5rem !important;
-    }
-    [data-testid="stChatInput"] button:hover {
-        background: #0d8c6d !important;
-    }
-    [data-testid="stChatInput"] button:disabled {
-        background: #d9d9e3 !important;
+
+    /* Chat message text */
+    [data-testid="stChatMessageContent"] {
+        font-size: 0.95rem !important;
+        line-height: 1.7 !important;
+        color: #353740 !important;
     }
 
-    /* ══════════════ EMPTY STATE ══════════════ */
-    .empty-hero {
-        text-align: center;
-        padding: 15vh 1rem 3rem 1rem;
-    }
-    .empty-hero h1 {
-        font-size: 2rem;
-        font-weight: 700;
-        color: #353740;
-        margin-bottom: 0.5rem;
-        letter-spacing: -0.02em;
-    }
-    .empty-hero p {
-        color: #8e8ea0;
-        font-size: 1rem;
+    /* User messages — subtle background */
+    [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) {
+        background: #f7f7f8 !important;
+        border-radius: 0.75rem !important;
     }
 
-    /* ══════════════ EXPANDERS ══════════════ */
+    /* Expanders */
     .streamlit-expanderHeader {
         font-size: 0.8rem !important;
-        font-weight: 500 !important;
         color: #8e8ea0 !important;
-        background: transparent !important;
-    }
-    .streamlit-expanderContent {
-        font-size: 0.85rem;
-        color: #6e6e80;
-        background: #f7f7f8 !important;
-        border-radius: 0 0 0.5rem 0.5rem;
     }
 
-    /* ══════════════ MISC ══════════════ */
-    /* Scrollbar — thin, subtle */
+    /* Empty state */
+    .empty-hero { text-align: center; padding: 12vh 1rem 2rem 1rem; }
+    .empty-hero h1 { font-size: 1.75rem; font-weight: 700; color: #353740; margin-bottom: 0.3rem; }
+    .empty-hero p { color: #8e8ea0; font-size: 0.95rem; }
+
+    /* Scrollbar */
     ::-webkit-scrollbar { width: 5px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #c5c5d2; border-radius: 5px; }
-    ::-webkit-scrollbar-thumb:hover { background: #8e8ea0; }
-
-    /* Spinner */
-    .stSpinner > div { color: #10a37f !important; }
-
-    /* Captions */
-    [data-testid="stCaptionContainer"] {
-        font-size: 0.8rem !important;
-        color: #8e8ea0 !important;
-    }
-
-    /* Number inputs in feedback row */
-    [data-testid="stNumberInput"] input {
-        font-size: 0.85rem !important;
-        padding: 0.3rem 0.5rem !important;
-        border-radius: 0.375rem !important;
-    }
-
-    /* Dividers */
-    hr {
-        border-color: #e5e5e5 !important;
-        margin: 0.75rem 0 !important;
-    }
-
-    /* File uploader */
-    [data-testid="stFileUploader"] label {
-        font-size: 0.85rem !important;
-    }
-
-    /* Hide Streamlit's default bottom padding that conflicts with fixed input */
-    .main .block-container { padding-bottom: 8rem !important; }
     </style>
     """,
     unsafe_allow_html=True,
