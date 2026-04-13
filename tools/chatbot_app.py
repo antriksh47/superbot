@@ -17,6 +17,16 @@ from google.genai import types
 
 load_dotenv()
 
+# Import structured data tools
+from data_tools import (
+    query_assets,
+    get_asset_detail,
+    get_show_context,
+    get_opening_stats,
+    get_writer_stats,
+    get_leaderboard,
+)
+
 CHROMA_DIR = Path(".tmp/chroma_db")
 COLLECTION = "ad_assets"
 BRIEFS_COLLECTION = "show_briefs"
@@ -67,15 +77,42 @@ TERMINOLOGY — LEARN THIS BEFORE ANYTHING ELSE
 - PROMOTED TO GROWTH / SCALED = This asset performed so well in testing that it was moved to the scaling budget. This is the strongest possible performance signal.
 
 ====================================================================
-CONTEXT LAYERS — INJECTED EVERY TURN
+YOUR TOOLS — USE THEM AGGRESSIVELY
 ====================================================================
 
-1. DATASET STATS — leaderboards across ALL historical tests (top CPI, top CTR, per-IP averages, writer rankings). Use for big-picture claims.
-2. SHOW CONTEXT (when present) — chunks from the show's 10-hour base story, character canvas, CPI-cracking notes. Use to ground your writing in REAL characters, world rules, and stakes. Cite as [SB1], [SB2], etc.
-3. PAST TESTS — retrieved ad examples most relevant to the user's query, with real performance data and script excerpts. Cite ad codes and CPIs.
-4. USER REQUEST.
+You have 6 data tools you MUST call before generating any content. NEVER guess or rely on memory alone — always call the relevant tool first.
 
-When SHOW CONTEXT is present, you MUST internalize the world, character names, relationships, and core conflict before writing. A Q1 for The Alpha's Bride must use Aria, Alpha Damon, Marcy, the Red Moon Pack — not generic "the girl" and "the Alpha."
+1. query_assets(ip, genre, writer, max_cpi, growth_only, sort_by, limit, search_text)
+   → Exact filtered search across 2,400+ ad assets. Use for "show me TAB ads under $2 CPI" etc.
+
+2. get_asset_detail(ad_code)
+   → Full record for one ad: all metrics + full opening text + full script text.
+
+3. get_show_context(show, section, max_chars)
+   → 10-hour base story, character canvas, CPI-cracking notes for a show.
+   → CALL THIS before writing any Q1 script — you need real characters and world.
+
+4. get_opening_stats(opening_code, top_n_reused)
+   → Stats for a specific opening (reuse count, avg CPI) or the top most-reused openings.
+   → Reuse count is a STRONG signal — an opening used in 40+ ads is a proven winner.
+
+5. get_writer_stats(writer, top_n)
+   → Writer portfolio or leaderboard. Use for "who writes the best werewolf hooks?"
+
+6. get_leaderboard(metric, ip, genre, growth_only, limit)
+   → Top N assets by any metric (CPI, CTR, retention, spend).
+
+TOOL USAGE RULES:
+- When asked to write a Q1 or opening for a SPECIFIC show: call get_show_context + query_assets for that show's top performers. You need BOTH the story world AND the proven ad patterns.
+- When asked "what's working" or "what are the best hooks": call get_leaderboard or query_assets with appropriate filters. Don't guess.
+- When a user mentions a specific ad code: call get_asset_detail to get the full record.
+- When asked about a writer: call get_writer_stats.
+- When asked about reuse or proven openings: call get_opening_stats.
+- You can call MULTIPLE tools in one turn. Do it.
+
+DATASET STATS are also injected into every turn as a baseline leaderboard.
+
+When writing for a specific show, ALWAYS call get_show_context first. You MUST internalize the world, character names, relationships, and core conflict before writing. A Q1 for The Alpha's Bride must use Aria, Alpha Damon, Marcy, the Red Moon Pack — not generic "the girl" and "the Alpha."
 
 ====================================================================
 WHAT "GOOD" MEANS — HARDCODED BENCHMARKS
@@ -346,7 +383,177 @@ def format_stats_block(stats):
     return "\n".join(lines)
 
 
-# ---------- retrieval ----------
+# ---------- Gemini function calling declarations ----------
+
+TOOL_FUNCTIONS = {
+    "query_assets": query_assets,
+    "get_asset_detail": get_asset_detail,
+    "get_show_context": get_show_context,
+    "get_opening_stats": get_opening_stats,
+    "get_writer_stats": get_writer_stats,
+    "get_leaderboard": get_leaderboard,
+}
+
+GEMINI_TOOLS = [
+    types.Tool(function_declarations=[
+        types.FunctionDeclaration(
+            name="query_assets",
+            description="Query ad assets with exact filters and sorting. Use this for questions like 'show me TAB ads under $2 CPI' or 'what are the best werewolf hooks by writer X'. Returns structured results with ad codes, metrics, and openings.",
+            parameters=types.Schema(
+                type="OBJECT",
+                properties={
+                    "ip": types.Schema(type="STRING", description="Show name or abbreviation: TAB, TOLR, WBM, AQB, M3VW, TAM, etc."),
+                    "genre": types.Schema(type="STRING", description="Genre: Werewolf, Romance, Fantasy, etc."),
+                    "writer": types.Schema(type="STRING", description="Writer name (partial match)"),
+                    "style": types.Schema(type="STRING", description="Style filter (partial match)"),
+                    "max_cpi": types.Schema(type="NUMBER", description="Maximum CPI threshold"),
+                    "min_cpi": types.Schema(type="NUMBER", description="Minimum CPI threshold"),
+                    "growth_only": types.Schema(type="BOOLEAN", description="Only return assets promoted to growth"),
+                    "sort_by": types.Schema(type="STRING", description="Sort: 'cpi' (asc), 'cpi_desc', 'ctr_cti' (desc), 'total_spend' (desc)"),
+                    "limit": types.Schema(type="INTEGER", description="Max results (default 20, max 50)"),
+                    "search_text": types.Schema(type="STRING", description="Text search across opening, script_name, ad_name"),
+                },
+            ),
+        ),
+        types.FunctionDeclaration(
+            name="get_asset_detail",
+            description="Get full detail for a specific ad code including the complete opening text, full script text, and all performance metrics. Use when the user asks about a specific ad code.",
+            parameters=types.Schema(
+                type="OBJECT",
+                properties={
+                    "ad_code": types.Schema(type="STRING", description="The ad code to look up (e.g., 'MAY25885')"),
+                },
+                required=["ad_code"],
+            ),
+        ),
+        types.FunctionDeclaration(
+            name="get_show_context",
+            description="Get show-level context: 10-hour base story, character canvas, CPI-cracking notes. Use when writing scripts for a specific show — this gives you the actual characters, world, and story to work with.",
+            parameters=types.Schema(
+                type="OBJECT",
+                properties={
+                    "show": types.Schema(type="STRING", description="Show name or abbreviation: TAB, TOLR, WBM, AQB, M3VW, etc."),
+                    "section": types.Schema(type="STRING", description="Section: 'all', 'base_story', 'cpi_crack', 'character_canvas', 'hub'"),
+                    "max_chars": types.Schema(type="INTEGER", description="Max chars to return (default 12000)"),
+                },
+                required=["show"],
+            ),
+        ),
+        types.FunctionDeclaration(
+            name="get_opening_stats",
+            description="Get stats for a specific opening_code (reuse count, avg CPI, all ad variants), or get the top most-reused opening codes. Use to find proven openings that have been successfully reused many times.",
+            parameters=types.Schema(
+                type="OBJECT",
+                properties={
+                    "opening_code": types.Schema(type="STRING", description="Specific opening code to look up. If omitted, returns top reused openings."),
+                    "top_n_reused": types.Schema(type="INTEGER", description="How many top reused openings to return (default 20)"),
+                },
+            ),
+        ),
+        types.FunctionDeclaration(
+            name="get_writer_stats",
+            description="Get performance stats for a specific writer (portfolio, avg CPI, top ads) or a leaderboard of top writers by avg CPI.",
+            parameters=types.Schema(
+                type="OBJECT",
+                properties={
+                    "writer": types.Schema(type="STRING", description="Writer name (partial match). If omitted, returns writer leaderboard."),
+                    "top_n": types.Schema(type="INTEGER", description="How many writers for leaderboard (default 15)"),
+                },
+            ),
+        ),
+        types.FunctionDeclaration(
+            name="get_leaderboard",
+            description="Get top N assets by any metric. Use for questions like 'top 10 by CPI', 'best CTR assets', 'highest spend ads'. Can filter by show or genre.",
+            parameters=types.Schema(
+                type="OBJECT",
+                properties={
+                    "metric": types.Schema(type="STRING", description="Metric: 'cpi' (lowest=best), 'ctr_cti' (highest=best), 'retention' (highest), 'spend' (highest), 'cpm' (lowest)"),
+                    "ip": types.Schema(type="STRING", description="Show filter: TAB, TOLR, WBM, etc."),
+                    "genre": types.Schema(type="STRING", description="Genre filter"),
+                    "growth_only": types.Schema(type="BOOLEAN", description="Only growth-promoted assets"),
+                    "limit": types.Schema(type="INTEGER", description="Max results (default 25)"),
+                },
+            ),
+        ),
+    ])
+]
+
+
+def execute_tool_call(func_name, args):
+    """Execute a tool function and return JSON-serializable result."""
+    fn = TOOL_FUNCTIONS.get(func_name)
+    if not fn:
+        return {"error": f"Unknown tool: {func_name}"}
+    try:
+        return fn(**args)
+    except Exception as e:
+        return {"error": f"Tool {func_name} failed: {str(e)}"}
+
+
+def run_tool_calling_loop(gclient, prompt, system_instruction, stats_block, max_rounds=4):
+    """
+    Run Gemini with function calling in a loop:
+    1. Send the user prompt + tools
+    2. If model calls tools, execute them and send results back
+    3. Repeat until model produces a final text response (or max rounds)
+
+    Returns (final_text, tool_calls_log).
+    """
+    messages = [
+        types.Content(role="user", parts=[types.Part(text=f"{stats_block}\n\nUSER REQUEST:\n{prompt}")]),
+    ]
+    tool_log = []
+
+    for round_num in range(max_rounds):
+        response = gclient.models.generate_content(
+            model=CHAT_MODEL,
+            contents=messages,
+            config=types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                temperature=1.0,
+                tools=GEMINI_TOOLS,
+            ),
+        )
+
+        # Check if model wants to call functions
+        func_calls = []
+        text_parts = []
+        for candidate in response.candidates:
+            for part in candidate.content.parts:
+                if hasattr(part, 'function_call') and part.function_call:
+                    func_calls.append(part.function_call)
+                elif hasattr(part, 'text') and part.text:
+                    text_parts.append(part.text)
+
+        if not func_calls:
+            # Model produced a final text response
+            return "".join(text_parts), tool_log
+
+        # Execute all function calls
+        messages.append(response.candidates[0].content)
+        func_response_parts = []
+        for fc in func_calls:
+            args = dict(fc.args) if fc.args else {}
+            tool_log.append({"tool": fc.name, "args": args})
+            result = execute_tool_call(fc.name, args)
+            result_json = json.dumps(result, default=str)
+            # Cap individual tool results to prevent context overflow
+            if len(result_json) > 25000:
+                result_json = result_json[:25000] + '..."truncated"}'
+            func_response_parts.append(
+                types.Part.from_function_response(
+                    name=fc.name,
+                    response=json.loads(result_json),
+                )
+            )
+
+        messages.append(types.Content(role="user", parts=func_response_parts))
+
+    # Exhausted rounds — return whatever text we got
+    return "".join(text_parts) if text_parts else "(Tool calling exceeded max rounds)", tool_log
+
+
+# ---------- retrieval (RAG fallback) ----------
 
 def embed_query(gclient, text):
     resp = gclient.models.embed_content(
@@ -950,17 +1157,18 @@ else:
     for msg in current_chat["messages"]:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
-            if msg.get("brief_hits"):
-                with st.expander(f"📖 Show context used ({len(msg['brief_hits'])} chunks)", expanded=False):
-                    for h in msg["brief_hits"]:
-                        m = h["meta"]
-                        st.markdown(f"- **{m.get('show_name','?')}** · `{m.get('doc_type','?')}` — _{m.get('doc_name','')[:100]}_")
+            if msg.get("tool_log"):
+                with st.expander(f"🔧 Tools called ({len(msg['tool_log'])})", expanded=False):
+                    for tc in msg["tool_log"]:
+                        args_str = ", ".join(f"{k}={v!r}" for k, v in tc.get("args", {}).items())
+                        st.markdown(f"- `{tc['tool']}({args_str})`")
+            # Legacy support for old chat messages with sources/brief_hits
             if msg.get("sources"):
                 with st.expander(f"📚 Ad sources ({len(msg['sources'])})", expanded=False):
                     for h in msg["sources"]:
-                        m = h["meta"]
+                        m = h.get("meta", {})
                         cpi = f"${m['cpi']:.2f}" if m.get("cpi", -1) >= 0 else "?"
-                        st.markdown(f"- **{m.get('ad_code','?')}** — CPI {cpi} — _{m.get('opening','')[:140]}_")
+                        st.markdown(f"- **{m.get('ad_code','?')}** — CPI {cpi}")
 
 
 # ---------- chat input ----------
@@ -980,87 +1188,32 @@ if prompt:
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        s = st.session_state.settings
-        filters = {k: v for k, v in current_chat.get("filters", {}).items() if v not in (None, "", 0.0, False)}
-
-        with st.spinner("Retrieving past tests…"):
-            hits, queries_used = retrieve(
-                gclient, coll, prompt, filters, k=s["top_k"], use_multi_query=s["multi_query"]
-            )
-
-        brief_hits = []
-        detected_slugs = []
-        if briefs_coll is not None and s["brief_k"] > 0:
-            if s.get("forced_show"):
-                detected_slugs = [s["forced_show"]]
-            elif s["use_show_routing"]:
-                with st.spinner("Detecting show…"):
-                    detected_slugs = detect_shows(gclient, prompt, show_catalog)
-            with st.spinner(
-                f"Pulling show context{' for ' + ', '.join(detected_slugs) if detected_slugs else ''}…"
-            ):
-                brief_hits = retrieve_brief_chunks(
-                    gclient, briefs_coll, prompt, detected_slugs, k=s["brief_k"]
-                )
-
-        context = format_context(hits)
-        show_ctx = format_show_context(brief_hits)
-
-        if show_ctx:
-            full_prompt = f"{stats_block}\n\n{show_ctx}\n\n{context}\n\nUSER REQUEST:\n{prompt}\n\n"
-        else:
-            full_prompt = f"{stats_block}\n\n{context}\n\nUSER REQUEST:\n{prompt}\n\n"
-        full_prompt += (
-            "Respond using the DATASET STATS, SHOW CONTEXT (if provided), and PAST TESTS above. "
-            "Cite [SB*] for show-context references and ad codes for ad-level citations. "
-            "When generating hooks/scripts, return BOTH [DATA-BACKED] AND [EXPLORATORY] options."
-        )
-
         placeholder = st.empty()
         full_text = ""
+        tool_log = []
+
         try:
-            stream = gclient.models.generate_content_stream(
-                model=CHAT_MODEL,
-                contents=full_prompt,
-                config=types.GenerateContentConfig(
-                    system_instruction=SYSTEM_PROMPT,
-                    temperature=1.0,
-                ),
-            )
-            for chunk in stream:
-                if chunk.text:
-                    full_text += chunk.text
-                    placeholder.markdown(full_text + "▌")
+            with st.spinner("Thinking + querying data…"):
+                full_text, tool_log = run_tool_calling_loop(
+                    gclient, prompt, SYSTEM_PROMPT, stats_block, max_rounds=4,
+                )
             placeholder.markdown(full_text)
         except Exception as e:
             full_text = f"⚠️ Generation failed: {e}"
             placeholder.error(full_text)
 
-        if detected_slugs:
-            st.caption(f"🎬 Show detected: {', '.join(detected_slugs)}")
-        if brief_hits:
-            with st.expander(f"📖 Show context used ({len(brief_hits)} chunks)", expanded=False):
-                for h in brief_hits:
-                    m = h["meta"]
-                    st.markdown(f"- **{m.get('show_name','?')}** · `{m.get('doc_type','?')}` — _{m.get('doc_name','')[:100]}_")
-        if hits:
-            with st.expander(f"📚 Ad sources ({len(hits)})", expanded=False):
-                for h in hits:
-                    m = h["meta"]
-                    cpi = f"${m['cpi']:.2f}" if m.get("cpi", -1) >= 0 else "?"
-                    st.markdown(f"- **{m.get('ad_code','?')}** — CPI {cpi} — _{m.get('opening','')[:140]}_")
-        if len(queries_used) > 1:
-            with st.expander(f"🔎 Query expansion ({len(queries_used)} angles)", expanded=False):
-                for q in queries_used:
-                    st.markdown(f"- {q}")
+        # Show tool calls for transparency
+        if tool_log:
+            with st.expander(f"🔧 Tools called ({len(tool_log)})", expanded=False):
+                for tc in tool_log:
+                    args_str = ", ".join(f"{k}={v!r}" for k, v in tc["args"].items())
+                    st.markdown(f"- `{tc['tool']}({args_str})`")
 
     current_chat["messages"].append(
         {
             "role": "assistant",
             "content": full_text,
-            "sources": hits,
-            "brief_hits": brief_hits,
-            "detected_slugs": detected_slugs,
+            "tool_log": tool_log,
         }
     )
     if current_chat.get("title") == "New chat":
