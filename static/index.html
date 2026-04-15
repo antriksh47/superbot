@@ -104,6 +104,13 @@ html,body{height:100%;overflow:hidden;font-family:'Inter',system-ui,sans-serif;b
 .mode-btn:hover{background:var(--sb-h);color:var(--tx)}
 .mode-btn.active{background:var(--ac);border-color:var(--ac);color:#fff}
 
+/* COMPARE */
+.compare-bar{display:flex;gap:4px;padding:0 4px;margin-bottom:2px}
+.compare-sel{flex:1;background:var(--ubg);border:1px solid var(--ib);border-radius:8px;color:var(--tx);font:400 11px 'Inter',sans-serif;padding:5px 8px;outline:0}
+.compare-results{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;padding:20px 24px;max-width:1200px;margin:0 auto}
+.compare-card{background:var(--ubg);border:1px solid var(--ib);border-radius:10px;padding:14px;overflow:auto;max-height:600px}
+.compare-card h4{font-size:12px;color:var(--ac);margin-bottom:8px;font-weight:600}
+
 /* MARKDOWN TABLES */
 .mc table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13px}
 .mc thead{background:var(--cbg)}
@@ -203,6 +210,12 @@ html,body{height:100%;overflow:hidden;font-family:'Inter',system-ui,sans-serif;b
   <div class="sb-panel">
     <label><input type="checkbox" id="twoPassToggle" checked> Two-pass (draft + critique)</label>
     <label style="margin-top:8px;flex-direction:column;align-items:flex-start;gap:4px">
+      <span>Model</span>
+      <select id="modelSel" style="width:100%;background:var(--ubg);border:1px solid var(--ib);border-radius:6px;color:var(--sb-t);font:400 12px 'Inter',sans-serif;padding:6px 8px;outline:0">
+        <option value="">Default (Gemini 2.5 Flash)</option>
+      </select>
+    </label>
+    <label style="margin-top:8px;flex-direction:column;align-items:flex-start;gap:4px">
       <span>Show filter</span>
       <select id="showFilter" style="width:100%;background:var(--ubg);border:1px solid var(--ib);border-radius:6px;color:var(--sb-t);font:400 12px 'Inter',sans-serif;padding:6px 8px;outline:0">
         <option value="">All shows</option>
@@ -225,6 +238,12 @@ html,body{height:100%;overflow:hidden;font-family:'Inter',system-ui,sans-serif;b
         <button class="mode-btn" data-mode="merge" onclick="setMode(this,'merge')">Script Merge</button>
         <button class="mode-btn" data-mode="cliffhanger" onclick="setMode(this,'cliffhanger')">Cliffhanger</button>
         <button class="mode-btn" data-mode="super" onclick="setMode(this,'super')">SuperAgent</button>
+        <button class="mode-btn" style="margin-left:auto;background:var(--ac);border-color:var(--ac);color:#fff" id="compareBtn" onclick="toggleCompare()">Compare</button>
+      </div>
+      <div class="compare-bar" id="compareBar" style="display:none">
+        <select id="compareModel1" class="compare-sel"><option value="">Model 1</option></select>
+        <select id="compareModel2" class="compare-sel"><option value="">Model 2</option></select>
+        <select id="compareModel3" class="compare-sel"><option value="">(optional) Model 3</option></select>
       </div>
       <div class="file-ind" id="fileInd"></div>
       <div class="ibar-row">
@@ -254,8 +273,30 @@ const api=(p,o={})=>fetch(p,{headers:{'Content-Type':'application/json'},...o}).
 // ── Mode selector ──
 function setMode(btn,mode){
   currentMode=mode;
-  document.querySelectorAll('.mode-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.mode-btn').forEach(b=>{if(b.id!=='compareBtn')b.classList.remove('active')});
   btn.classList.add('active');
+}
+
+let compareMode=false;
+function toggleCompare(){
+  compareMode=!compareMode;
+  $('compareBar').style.display=compareMode?'flex':'none';
+  $('compareBtn').style.opacity=compareMode?'1':'0.6';
+}
+
+// ── Load models ──
+async function loadModels(){
+  try{
+    const models=await api('/api/models');
+    const sels=[$('modelSel'),$('compareModel1'),$('compareModel2'),$('compareModel3')];
+    for(const sel of sels){
+      const first=sel.options[0];
+      sel.innerHTML='';sel.appendChild(first);
+      for(const m of models){
+        const o=document.createElement('option');o.value=m.id;o.textContent=m.name;sel.appendChild(o);
+      }
+    }
+  }catch(e){console.warn('Failed to load models',e)}
 }
 
 // ── Login ──
@@ -281,7 +322,7 @@ async function doLogin(){
 if(checkAuth()){/* already logged in */}
 
 // ── Init ──
-async function init(){loadProjects();loadChats();loadStats();loadShows();showEmpty()}
+async function init(){loadProjects();loadChats();loadStats();loadShows();loadModels();showEmpty()}
 async function loadStats(){
   try{const s=await api('/api/stats');$('sbFoot').innerHTML=`${s.total_assets} ads &middot; ${s.total_briefs} briefs &middot; ${s.total_shows} shows`}catch(e){}
 }
@@ -374,6 +415,17 @@ async function send(){
   const em=$('msgs').querySelector('.empty');if(em)em.remove();
   addMsg('user',txt);scroll();
 
+  // Compare mode
+  if(compareMode){
+    const models=[
+      $('compareModel1').value,$('compareModel2').value,$('compareModel3').value
+    ].filter(Boolean);
+    if(models.length<2){addMsg('assistant','Select at least 2 models to compare.');busy=false;return}
+    await sendCompare(txt,models);
+    busy=false;files=[];renderFiles();
+    return;
+  }
+
   // Build file context
   let fileCtx='';
   if(files.length){fileCtx=files.map(f=>`[ATTACHED FILE: ${f.name} (${f.type})]\n${f.text}`).join('\n\n')}
@@ -392,7 +444,7 @@ async function send(){
     // Use SSE for stage updates
     const resp=await fetch('/api/chat/stream',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({message:txt,chat_id:chatId,project_id:projId,two_pass:twoPass,file_context:fileCtx||null,mode:currentMode||null})
+      body:JSON.stringify({message:txt,chat_id:chatId,project_id:projId,two_pass:twoPass,file_context:fileCtx||null,mode:currentMode||null,model:$('modelSel').value||null})
     });
     const reader=resp.body.getReader();const dec=new TextDecoder();let buf='';
     while(true){
@@ -417,6 +469,52 @@ async function send(){
 }
 
 function use(t){$('inp').value=t;ar($('inp'));ts();send()}
+
+// ── Compare ──
+async function sendCompare(txt,models){
+  let fileCtx='';
+  if(files.length){fileCtx=files.map(f=>`[ATTACHED FILE: ${f.name} (${f.type})]\n${f.text}`).join('\n\n')}
+  const showVal=$('showFilter').value;
+  if(showVal){fileCtx=`[SHOW FILTER: Focus on show "${showVal}"]\n\n`+(fileCtx||'')}
+
+  const ld=document.createElement('div');ld.className='msg';ld.id='ldMsg';
+  ld.innerHTML=`<div class="msg-in"><div class="av av-a">${PFM}</div><div class="mc"><div class="stage" id="stageText"><div class="dot"></div> Comparing ${models.length} models...</div><div class="ld"><span></span><span></span><span></span></div></div></div>`;
+  $('msgs').appendChild(ld);scroll();
+
+  try{
+    const resp=await fetch('/api/compare',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({message:txt,models,mode:currentMode||null,file_context:fileCtx||null})
+    });
+    const reader=resp.body.getReader();const dec=new TextDecoder();let buf='';
+    while(true){
+      const{done,value}=await reader.read();if(done)break;
+      buf+=dec.decode(value,{stream:true});
+      const lines=buf.split('\n');buf=lines.pop();
+      for(const line of lines){
+        if(!line.startsWith('data: '))continue;
+        try{
+          const d=JSON.parse(line.slice(6));
+          if(d.stage){const st=$('stageText');if(st)st.innerHTML=`<div class="dot"></div> ${esc(d.stage)}`}
+          if(d.done){
+            ld.remove();
+            // Render compare results
+            const results=d.results;
+            const div=document.createElement('div');div.className='msg';
+            let cards='';
+            for(const[mid,r] of Object.entries(results)){
+              const name=mid.split('/').pop();
+              cards+=`<div class="compare-card"><h4>${esc(name)}</h4><div class="mc">${md(r.response)}</div></div>`;
+            }
+            div.innerHTML=`<div class="msg-in"><div class="av av-a">${PFM}</div><div class="mc"><strong>Compare Results</strong><div class="compare-results">${cards}</div></div></div>`;
+            $('msgs').appendChild(div);scroll();
+          }
+          if(d.error){ld.remove();addMsg('assistant','Error: '+d.error);scroll()}
+        }catch(e){}
+      }
+    }
+  }catch(e){ld.remove();addMsg('assistant','Error: '+e.message);scroll()}
+}
 
 // ── Messages ──
 function addMsg(role,content,tlog,draft,critique){
