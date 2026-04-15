@@ -418,13 +418,22 @@ def execute_tool_call(name, args_str):
         return {"error": f"Tool {name} failed: {str(e)}"}
 
 
-def run_generation(prompt, two_pass=True, mode=None, model=None):
+def run_generation(prompt, two_pass=True, mode=None, model=None, chat_history=None):
     """Run tool-calling loop via OpenRouter + optional two-pass critique."""
     model = model or DEFAULT_MODEL
     sys_prompt = get_system_prompt_for_mode(mode)
-    messages = [
-        {"role": "user", "content": f"{STATS_BLOCK}\n\nUSER REQUEST:\n{prompt}"},
-    ]
+
+    # Build messages with conversation history
+    messages = []
+    if chat_history:
+        # Include last N message pairs for context (avoid blowing up token limit)
+        recent = chat_history[-10:]  # last 5 exchanges
+        for m in recent:
+            role = m.get("role", "user")
+            content = m.get("content", "")
+            if role in ("user", "assistant") and content:
+                messages.append({"role": role, "content": content})
+    messages.append({"role": "user", "content": f"{STATS_BLOCK}\n\nUSER REQUEST:\n{prompt}"})
     tool_log = []
     msg = {}
 
@@ -582,8 +591,16 @@ async def chat(req: ChatRequest):
     prompt = req.message
     if req.file_context:
         prompt = f"{req.file_context}\n\n{prompt}"
+
+    # Load chat history for context
+    chat_history = None
+    if req.chat_id:
+        existing = load_json(f".tmp/chats/{req.chat_id}.json")
+        if existing:
+            chat_history = existing.get("messages", [])
+
     try:
-        result = run_generation(prompt, two_pass=req.two_pass, mode=req.mode, model=req.model)
+        result = run_generation(prompt, two_pass=req.two_pass, mode=req.mode, model=req.model, chat_history=chat_history)
     except Exception as e:
         raise HTTPException(500, str(e))
 
@@ -621,15 +638,29 @@ async def chat_stream(req: ChatRequest):
     model = req.model or DEFAULT_MODEL
     sys_prompt = get_system_prompt_for_mode(mode)
 
+    # Load chat history for context
+    chat_history = None
+    if req.chat_id:
+        existing = load_json(f".tmp/chats/{req.chat_id}.json")
+        if existing:
+            chat_history = existing.get("messages", [])
+
     async def generate():
         try:
             mode_label = f" [{mode.upper()}]" if mode else ""
             model_short = model.split("/")[-1] if "/" in model else model
             yield f"data: {json.dumps({'stage': f'Using {model_short}...{mode_label}'})}\n\n"
 
-            messages = [
-                {"role": "user", "content": f"{STATS_BLOCK}\n\nUSER REQUEST:\n{prompt}"},
-            ]
+            # Build messages with conversation history
+            messages = []
+            if chat_history:
+                recent = chat_history[-10:]
+                for m in recent:
+                    role = m.get("role", "user")
+                    content = m.get("content", "")
+                    if role in ("user", "assistant") and content:
+                        messages.append({"role": role, "content": content})
+            messages.append({"role": "user", "content": f"{STATS_BLOCK}\n\nUSER REQUEST:\n{prompt}"})
             tool_log = []
             msg = {}
 
