@@ -13,7 +13,7 @@ from pathlib import Path
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -690,36 +690,180 @@ class ProjectRequest(BaseModel):
     name: str
 
 
-# ── Login ──
-# Shared default password (can be overridden per-user via env vars below).
-# Each user gets their own login so we can track who's doing what.
+# ── Login + user management ──
+# Users are stored in GCS (.tmp/users.json). On first run, bootstrapped from env.
+import hashlib
+import hmac
+
+USERS_KEY = ".tmp/users.json"
+_PASS_SALT = os.getenv("SUPERBOT_SALT", "superbot-v1-salt-change-me")
 _DEFAULT_PASS = os.getenv("SUPERBOT_PASS", "pfmsuperbot@")
-VALID_USERS = {
-    "werewolf": _DEFAULT_PASS,
-    "user1": os.getenv("SUPERBOT_PASS_USER1", _DEFAULT_PASS),
-    "user2": os.getenv("SUPERBOT_PASS_USER2", _DEFAULT_PASS),
-    "user3": os.getenv("SUPERBOT_PASS_USER3", _DEFAULT_PASS),
-    "user4": os.getenv("SUPERBOT_PASS_USER4", _DEFAULT_PASS),
-    "user5": os.getenv("SUPERBOT_PASS_USER5", _DEFAULT_PASS),
-    "user6": os.getenv("SUPERBOT_PASS_USER6", _DEFAULT_PASS),
-    "user7": os.getenv("SUPERBOT_PASS_USER7", _DEFAULT_PASS),
-    "user8": os.getenv("SUPERBOT_PASS_USER8", _DEFAULT_PASS),
-    "user9": os.getenv("SUPERBOT_PASS_USER9", _DEFAULT_PASS),
-    "user10": os.getenv("SUPERBOT_PASS_USER10", _DEFAULT_PASS),
-}
+
+
+def hash_password(password: str) -> str:
+    return hashlib.pbkdf2_hmac("sha256", password.encode(), _PASS_SALT.encode(), 100_000).hex()
+
+
+def _bootstrap_users():
+    """Create initial users if users.json doesn't exist yet."""
+    existing = load_json(USERS_KEY)
+    if existing:
+        return existing
+    now = datetime.now().isoformat()
+    default_hash = hash_password(_DEFAULT_PASS)
+    users = {
+        "werewolf": {"password_hash": default_hash, "is_admin": True, "created_at": now},
+    }
+    for i in range(1, 11):
+        users[f"user{i}"] = {"password_hash": default_hash, "is_admin": False, "created_at": now}
+    store_json(USERS_KEY, users)
+    return users
+
+
+def get_users():
+    return load_json(USERS_KEY) or _bootstrap_users()
+
+
+def verify_user(username: str, password: str):
+    """Return user dict if valid, else None."""
+    if not username or not password:
+        return None
+    users = get_users()
+    user = users.get(username.lower())
+    if not user:
+        return None
+    if hmac.compare_digest(user.get("password_hash", ""), hash_password(password)):
+        return {"username": username.lower(), **user}
+    return None
+
+
+def check_admin(request):
+    """Return admin user dict if request has valid admin credentials, else None."""
+    username = request.headers.get("X-Admin-User", "")
+    password = request.headers.get("X-Admin-Pass", "")
+    user = verify_user(username, password)
+    if user and user.get("is_admin"):
+        return user
+    return None
+
+
+# Initialize users on startup
+_bootstrap_users()
 
 
 @app.post("/api/login")
 async def login(req: LoginRequest):
-    expected = VALID_USERS.get(req.username.lower())
-    if expected and req.password == expected:
-        return {"ok": True}
+    user = verify_user(req.username, req.password)
+    if user:
+        return {"ok": True, "username": user["username"], "is_admin": user.get("is_admin", False)}
     return JSONResponse({"ok": False, "error": "Invalid username or password"}, status_code=401)
+
+
+# ── Admin endpoints (require X-Admin-User + X-Admin-Pass headers) ──
+
+class AdminUserRequest(BaseModel):
+    username: str
+    password: str
+    is_admin: bool = False
+
+
+class AdminPasswordRequest(BaseModel):
+    username: str
+    new_password: str
+
+
+def _require_admin(request: Request):
+    admin = check_admin(request)
+    if not admin:
+        raise HTTPException(403, "Admin access required")
+    return admin
+
+
+@app.get("/api/admin/users")
+async def admin_list_users(request: Request):
+    _require_admin(request)
+    users = get_users()
+    # Never return password hashes
+    return [
+        {"username": u, "is_admin": d.get("is_admin", False), "created_at": d.get("created_at", "")}
+        for u, d in sorted(users.items())
+    ]
+
+
+@app.post("/api/admin/users")
+async def admin_create_user(req: AdminUserRequest, request: Request):
+    _require_admin(request)
+    username = req.username.lower().strip()
+    if not username or not req.password:
+        raise HTTPException(400, "Username and password required")
+    if len(username) < 2 or len(req.password) < 4:
+        raise HTTPException(400, "Username must be 2+ chars, password 4+ chars")
+    users = get_users()
+    if username in users:
+        raise HTTPException(400, f"User '{username}' already exists")
+    users[username] = {
+        "password_hash": hash_password(req.password),
+        "is_admin": req.is_admin,
+        "created_at": datetime.now().isoformat(),
+    }
+    store_json(USERS_KEY, users)
+    return {"ok": True, "username": username}
+
+
+@app.delete("/api/admin/users/{username}")
+async def admin_delete_user(username: str, request: Request):
+    admin = _require_admin(request)
+    username = username.lower()
+    if username == admin["username"]:
+        raise HTTPException(400, "Cannot delete yourself")
+    users = get_users()
+    if username not in users:
+        raise HTTPException(404, "User not found")
+    # Prevent deleting the last admin
+    remaining_admins = [u for u, d in users.items() if d.get("is_admin") and u != username]
+    if not remaining_admins:
+        raise HTTPException(400, "Cannot delete the last admin")
+    del users[username]
+    store_json(USERS_KEY, users)
+    return {"ok": True}
+
+
+@app.post("/api/admin/users/password")
+async def admin_reset_password(req: AdminPasswordRequest, request: Request):
+    _require_admin(request)
+    username = req.username.lower()
+    if len(req.new_password) < 4:
+        raise HTTPException(400, "Password must be 4+ chars")
+    users = get_users()
+    if username not in users:
+        raise HTTPException(404, "User not found")
+    users[username]["password_hash"] = hash_password(req.new_password)
+    store_json(USERS_KEY, users)
+    return {"ok": True}
+
+
+@app.post("/api/admin/users/{username}/toggle-admin")
+async def admin_toggle_admin(username: str, request: Request):
+    admin = _require_admin(request)
+    username = username.lower()
+    users = get_users()
+    if username not in users:
+        raise HTTPException(404, "User not found")
+    if username == admin["username"]:
+        raise HTTPException(400, "Cannot change your own admin status")
+    users[username]["is_admin"] = not users[username].get("is_admin", False)
+    store_json(USERS_KEY, users)
+    return {"ok": True, "is_admin": users[username]["is_admin"]}
 
 
 @app.get("/")
 async def index():
     return FileResponse(Path(__file__).parent / "static" / "index.html")
+
+
+@app.get("/admin")
+async def admin_page():
+    return FileResponse(Path(__file__).parent / "static" / "admin.html")
 
 
 # ── Models ──

@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Superbot Admin</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:#212121;color:#ececec;font:400 14px/1.5 'Inter',sans-serif;min-height:100vh;padding:40px 20px}
+.wrap{max-width:900px;margin:0 auto}
+h1{font-size:24px;margin-bottom:8px;display:flex;align-items:center;gap:10px}
+.sub{color:#8e8ea0;margin-bottom:32px;font-size:13px}
+.sub a{color:#10a37f;text-decoration:none}
+.sub a:hover{text-decoration:underline}
+
+.login-box{max-width:380px;margin:80px auto;background:#2f2f2f;padding:32px;border-radius:12px;border:1px solid #424242}
+.login-box h2{margin-bottom:16px;font-size:18px}
+.login-box p{color:#8e8ea0;font-size:13px;margin-bottom:20px}
+input,select{width:100%;background:#1a1a1a;border:1px solid #424242;border-radius:8px;color:#ececec;font:400 14px 'Inter',sans-serif;padding:10px 12px;outline:0;margin-bottom:10px}
+input:focus{border-color:#10a37f}
+button{background:#10a37f;border:none;border-radius:8px;color:#fff;font:500 14px 'Inter',sans-serif;padding:10px 20px;cursor:pointer;transition:background 0.15s}
+button:hover{background:#0d8c6d}
+button:disabled{background:#424242;cursor:not-allowed}
+button.secondary{background:#424242}
+button.secondary:hover{background:#525252}
+button.danger{background:#b91c1c}
+button.danger:hover{background:#991b1b}
+
+.err{color:#f87171;font-size:12px;margin-top:8px}
+.ok{color:#10a37f;font-size:12px;margin-top:8px}
+
+.card{background:#2f2f2f;border:1px solid #424242;border-radius:12px;padding:24px;margin-bottom:20px}
+.card h3{font-size:16px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center}
+.card h3 span{color:#8e8ea0;font-size:12px;font-weight:400}
+
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid #3a3a3a;font-size:13px}
+th{color:#8e8ea0;font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:0.5px}
+.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;background:#3a3a3a;color:#b4b4b4}
+.badge.admin{background:#10a37f;color:#fff}
+.row-actions{display:flex;gap:6px;justify-content:flex-end}
+.row-actions button{padding:4px 10px;font-size:12px}
+
+.form-grid{display:grid;grid-template-columns:1fr 1fr auto auto;gap:10px;align-items:start}
+.form-grid label{display:flex;align-items:center;gap:6px;white-space:nowrap;color:#b4b4b4;font-size:13px}
+.form-grid input{margin:0}
+.top-actions{display:flex;justify-content:flex-end;margin-bottom:20px}
+
+.modal{position:fixed;inset:0;background:rgba(0,0,0,0.7);display:none;align-items:center;justify-content:center;z-index:100}
+.modal.open{display:flex}
+.modal-box{background:#2f2f2f;border:1px solid #424242;border-radius:12px;padding:24px;width:380px;max-width:90vw}
+.modal-box h3{margin-bottom:16px;font-size:16px}
+.modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+
+@media (max-width:640px){
+  .form-grid{grid-template-columns:1fr}
+  table{font-size:12px}
+  th:nth-child(3),td:nth-child(3){display:none}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<!-- Login gate -->
+<div id="loginView">
+  <div class="login-box">
+    <h2>🤖 Superbot Admin</h2>
+    <p>Enter admin credentials to manage users.</p>
+    <input type="text" id="loginUser" placeholder="Admin username">
+    <input type="password" id="loginPass" placeholder="Password" onkeydown="if(event.key==='Enter')doLogin()">
+    <button onclick="doLogin()" style="width:100%">Sign in</button>
+    <div class="err" id="loginErr"></div>
+  </div>
+</div>
+
+<!-- Admin dashboard -->
+<div id="adminView" style="display:none">
+  <h1>🤖 Superbot Admin</h1>
+  <div class="sub">Logged in as <b id="whoAmI"></b> · <a href="/">← Back to chat</a> · <a href="#" onclick="logout();return false">Sign out</a></div>
+
+  <div class="card">
+    <h3>Create user <span id="userCount"></span></h3>
+    <div class="form-grid">
+      <input type="text" id="newUser" placeholder="username (e.g. amit)">
+      <input type="text" id="newPass" placeholder="initial password">
+      <label><input type="checkbox" id="newAdmin"> Admin</label>
+      <button onclick="createUser()">Create</button>
+    </div>
+    <div id="createMsg"></div>
+  </div>
+
+  <div class="card">
+    <h3>Users</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Username</th>
+          <th>Role</th>
+          <th>Created</th>
+          <th style="text-align:right">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="userRows"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Password reset modal -->
+<div class="modal" id="resetModal">
+  <div class="modal-box">
+    <h3>Reset password</h3>
+    <p style="color:#b4b4b4;font-size:13px;margin-bottom:16px">Set a new password for <b id="resetUser"></b></p>
+    <input type="text" id="resetPass" placeholder="New password" onkeydown="if(event.key==='Enter')doReset()">
+    <div class="modal-actions">
+      <button class="secondary" onclick="closeReset()">Cancel</button>
+      <button onclick="doReset()">Save</button>
+    </div>
+    <div id="resetMsg"></div>
+  </div>
+</div>
+
+</div>
+
+<script>
+const $=s=>document.getElementById(s);
+let adminCreds=null;  // {username, password}
+
+function esc(s){return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c])}
+
+function authHeaders(){
+  return {
+    'Content-Type':'application/json',
+    'X-Admin-User':adminCreds.username,
+    'X-Admin-Pass':adminCreds.password,
+  };
+}
+
+async function doLogin(){
+  const u=$('loginUser').value.trim().toLowerCase();
+  const p=$('loginPass').value;
+  if(!u||!p){$('loginErr').textContent='Enter both username and password';return}
+  try{
+    const r=await fetch('/api/login',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({username:u,password:p}),
+    });
+    const d=await r.json();
+    if(!d.ok){$('loginErr').textContent=d.error||'Login failed';return}
+    if(!d.is_admin){$('loginErr').textContent='This account is not an admin.';return}
+    adminCreds={username:u,password:p};
+    sessionStorage.setItem('sb_admin_u',u);
+    sessionStorage.setItem('sb_admin_p',p);
+    showAdmin();
+  }catch(e){$('loginErr').textContent='Error: '+e.message}
+}
+
+function logout(){
+  sessionStorage.removeItem('sb_admin_u');
+  sessionStorage.removeItem('sb_admin_p');
+  adminCreds=null;
+  $('adminView').style.display='none';
+  $('loginView').style.display='';
+  $('loginUser').value='';$('loginPass').value='';
+}
+
+function showAdmin(){
+  $('loginView').style.display='none';
+  $('adminView').style.display='';
+  $('whoAmI').textContent=adminCreds.username;
+  loadUsers();
+}
+
+async function loadUsers(){
+  try{
+    const r=await fetch('/api/admin/users',{headers:authHeaders()});
+    if(r.status===403){logout();$('loginErr').textContent='Access denied.';return}
+    const users=await r.json();
+    renderUsers(users);
+  }catch(e){console.error(e)}
+}
+
+function renderUsers(users){
+  $('userCount').textContent=`(${users.length} total)`;
+  $('userRows').innerHTML=users.map(u=>{
+    const isMe=u.username===adminCreds.username;
+    const created=u.created_at?u.created_at.slice(0,10):'—';
+    const badge=u.is_admin?'<span class="badge admin">admin</span>':'<span class="badge">user</span>';
+    const toggleBtn=isMe?'':`<button class="secondary" onclick="toggleAdmin('${esc(u.username)}')">${u.is_admin?'Revoke admin':'Make admin'}</button>`;
+    const delBtn=isMe?'':`<button class="danger" onclick="delUser('${esc(u.username)}')">Delete</button>`;
+    return `<tr>
+      <td><b>${esc(u.username)}</b>${isMe?' <span style="color:#8e8ea0">(you)</span>':''}</td>
+      <td>${badge}</td>
+      <td style="color:#8e8ea0">${esc(created)}</td>
+      <td><div class="row-actions">
+        <button class="secondary" onclick="openReset('${esc(u.username)}')">Reset password</button>
+        ${toggleBtn}
+        ${delBtn}
+      </div></td>
+    </tr>`;
+  }).join('');
+}
+
+async function createUser(){
+  const username=$('newUser').value.trim().toLowerCase();
+  const password=$('newPass').value;
+  const is_admin=$('newAdmin').checked;
+  $('createMsg').innerHTML='';
+  if(!username||!password){$('createMsg').innerHTML='<div class="err">Username and password required</div>';return}
+  try{
+    const r=await fetch('/api/admin/users',{
+      method:'POST',headers:authHeaders(),
+      body:JSON.stringify({username,password,is_admin}),
+    });
+    const d=await r.json();
+    if(r.ok){
+      $('createMsg').innerHTML=`<div class="ok">Created "${esc(username)}"</div>`;
+      $('newUser').value='';$('newPass').value='';$('newAdmin').checked=false;
+      loadUsers();
+    }else{
+      $('createMsg').innerHTML=`<div class="err">${esc(d.detail||'Failed')}</div>`;
+    }
+  }catch(e){$('createMsg').innerHTML=`<div class="err">${esc(e.message)}</div>`}
+}
+
+async function delUser(username){
+  if(!confirm(`Delete user "${username}"? This cannot be undone.`))return;
+  try{
+    const r=await fetch(`/api/admin/users/${encodeURIComponent(username)}`,{
+      method:'DELETE',headers:authHeaders(),
+    });
+    if(r.ok){loadUsers()}
+    else{const d=await r.json();alert(d.detail||'Delete failed')}
+  }catch(e){alert('Error: '+e.message)}
+}
+
+async function toggleAdmin(username){
+  try{
+    const r=await fetch(`/api/admin/users/${encodeURIComponent(username)}/toggle-admin`,{
+      method:'POST',headers:authHeaders(),
+    });
+    if(r.ok){loadUsers()}
+    else{const d=await r.json();alert(d.detail||'Failed')}
+  }catch(e){alert('Error: '+e.message)}
+}
+
+function openReset(username){
+  $('resetUser').textContent=username;
+  $('resetPass').value='';
+  $('resetMsg').innerHTML='';
+  $('resetModal').classList.add('open');
+  $('resetPass').dataset.username=username;
+  setTimeout(()=>$('resetPass').focus(),50);
+}
+function closeReset(){$('resetModal').classList.remove('open')}
+
+async function doReset(){
+  const username=$('resetPass').dataset.username;
+  const new_password=$('resetPass').value;
+  if(!new_password){$('resetMsg').innerHTML='<div class="err">Password required</div>';return}
+  try{
+    const r=await fetch('/api/admin/users/password',{
+      method:'POST',headers:authHeaders(),
+      body:JSON.stringify({username,new_password}),
+    });
+    if(r.ok){
+      // If admin reset own password, update stored creds
+      if(username===adminCreds.username){
+        adminCreds.password=new_password;
+        sessionStorage.setItem('sb_admin_p',new_password);
+      }
+      closeReset();
+    }else{
+      const d=await r.json();
+      $('resetMsg').innerHTML=`<div class="err">${esc(d.detail||'Failed')}</div>`;
+    }
+  }catch(e){$('resetMsg').innerHTML=`<div class="err">${esc(e.message)}</div>`}
+}
+
+// Auto-restore session
+(function init(){
+  const u=sessionStorage.getItem('sb_admin_u');
+  const p=sessionStorage.getItem('sb_admin_p');
+  if(u&&p){
+    adminCreds={username:u,password:p};
+    showAdmin();
+  }
+})();
+</script>
+</body>
+</html>
