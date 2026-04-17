@@ -241,7 +241,12 @@ def openrouter_chat(model, messages, system=None, temperature=1.0, tools=None):
         json=payload,
         timeout=120.0,
     )
-    resp.raise_for_status()
+    if resp.status_code >= 400:
+        # Include the response body so we can see the actual error
+        raise httpx.HTTPStatusError(
+            f"OpenRouter {resp.status_code}: {resp.text[:500]}",
+            request=resp.request, response=resp,
+        )
     return resp.json()
 
 
@@ -673,7 +678,7 @@ _models_cache = {"data": None, "ts": 0}
 
 @app.get("/api/models")
 async def list_models():
-    """Fetch available models from OpenRouter."""
+    """Fetch chat-capable, tool-capable models from OpenRouter."""
     now = time.time()
     if _models_cache["data"] and now - _models_cache["ts"] < 3600:
         return _models_cache["data"]
@@ -682,16 +687,23 @@ async def list_models():
         resp = httpx.get(f"{OPENROUTER_BASE}/models", headers=openrouter_headers(), timeout=15.0)
         resp.raise_for_status()
         all_models = resp.json().get("data", [])
-        # Filter to chat models, return id + name + pricing
+        # Only include models that support tool calling (our app requires it)
         models = []
         for m in all_models:
+            supported = m.get("supported_parameters") or []
+            if "tools" not in supported:
+                continue
+            arch = m.get("architecture") or {}
+            # Must output text (exclude image/audio-only output models)
+            out_mods = arch.get("output_modalities") or []
+            if out_mods and "text" not in out_mods:
+                continue
             models.append({
                 "id": m["id"],
                 "name": m.get("name", m["id"]),
                 "context_length": m.get("context_length"),
                 "pricing": m.get("pricing", {}),
             })
-        # Sort by name
         models.sort(key=lambda x: x["name"].lower())
         _models_cache["data"] = models
         _models_cache["ts"] = now
