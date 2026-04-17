@@ -132,7 +132,58 @@ def _extract_system_prompt():
     end = src.find('"""', start)
     return src[start:end]
 
-_BASE_SYSTEM_PROMPT = _extract_system_prompt()
+
+def _split_show_bibles(full_prompt):
+    """
+    Split the SHOW CHARACTER BIBLES section out of the system prompt into a dict.
+    Returns (base_prompt_without_bibles, {show_code: bible_text}).
+    This lets us only include the relevant show's bible per request — saves ~3-4k tokens.
+    """
+    bibles_header = "SHOW CHARACTER BIBLES"
+    hdr_idx = full_prompt.find(bibles_header)
+    if hdr_idx < 0:
+        return full_prompt, {}
+    # Find the start of the section (the ==== line before the header)
+    section_start = full_prompt.rfind("====", 0, hdr_idx)
+    # Find the NEXT ==== section after the bibles end
+    search_from = full_prompt.find("===", hdr_idx + len(bibles_header) + 50)
+    # skip the closing === of the header itself
+    while search_from > 0 and full_prompt[search_from:search_from+4] == "====" and full_prompt[search_from-5:search_from].strip() != "":
+        next_search = full_prompt.find("====", search_from + 4)
+        if next_search < 0:
+            break
+        if "SHOW CHARACTER BIBLES" not in full_prompt[search_from:next_search]:
+            break
+        search_from = next_search
+    next_section = full_prompt.find("\n====", hdr_idx + len(bibles_header) + 50)
+    if next_section < 0:
+        return full_prompt, {}
+    bibles_block = full_prompt[hdr_idx:next_section]
+
+    # Parse each "--- SHOW NAME (CODE) ---" section
+    import re
+    bibles = {}
+    # Match "--- THE ALPHA'S BRIDE (TAB) — ..." style headers
+    pattern = re.compile(r"---\s*([^()]+?)\(([A-Z]+)\)\s*—[^\n]*")
+    matches = list(pattern.finditer(bibles_block))
+    for i, m in enumerate(matches):
+        code = m.group(2).strip()
+        block_start = m.start()
+        block_end = matches[i+1].start() if i+1 < len(matches) else len(bibles_block)
+        bibles[code] = bibles_block[block_start:block_end].strip()
+
+    # Remove the bibles section from the base prompt — replace with a stub
+    stub = (
+        "SHOW CHARACTER BIBLES — loaded per-request based on which show is mentioned.\n"
+        "If you need character details for a show not auto-loaded, call get_show_context(show='TAB'|'TOLR'|'WBM'|etc).\n"
+        "Known show codes: TAB, TOLR, WBM, AQB, M3VW, TAM, BMA, TDMB."
+    )
+    base = full_prompt[:section_start] + stub + full_prompt[next_section:]
+    return base, bibles
+
+
+_RAW_SYSTEM_PROMPT = _extract_system_prompt()
+_BASE_SYSTEM_PROMPT, SHOW_BIBLES = _split_show_bibles(_RAW_SYSTEM_PROMPT)
 
 SYSTEM_PROMPT = _BASE_SYSTEM_PROMPT + """
 
@@ -396,8 +447,39 @@ def truncate_result(obj, max_chars=20000):
     return obj
 
 
-def get_system_prompt_for_mode(mode):
+_SHOW_KEYWORDS = {
+    "TAB": ["tab", "alpha's bride", "alphas bride", "alpha bride", "talia", "damon", "red moon", "dark howlers", "marcy"],
+    "TOLR": ["tolr", "twists of love", "love & revenge", "love and revenge", "susan drew", "ethan williams", "omini"],
+    "WBM": ["wbm", "wobm", "wolves of blood moon", "blood moon", "violet purple", "lunaris", "terror four", "cardinal alpha"],
+    "AQB": ["aqb", "queen betrayed", "queen"],
+    "M3VW": ["m3vw", "my three vampire", "vampire"],
+    "TAM": ["tam", "alpha's mark", "alphas mark"],
+    "BMA": ["bma", "blood moon academy"],
+    "TDMB": ["tdmb", "devil's mark"],
+}
+
+
+def detect_shows(text):
+    """Return list of show codes mentioned in the text (case-insensitive)."""
+    if not text:
+        return []
+    low = text.lower()
+    found = []
+    for code, kws in _SHOW_KEYWORDS.items():
+        if any(kw in low for kw in kws):
+            found.append(code)
+    return found
+
+
+def get_system_prompt_for_mode(mode, user_text=None):
+    """Build prompt with mode instructions + relevant show bibles injected."""
     base = SYSTEM_PROMPT
+    # Inject only the show bibles mentioned in the user's message
+    shows = detect_shows(user_text) if user_text else []
+    if shows:
+        bibles_text = "\n\n".join(SHOW_BIBLES[s] for s in shows if s in SHOW_BIBLES)
+        if bibles_text:
+            base += "\n\n=== LOADED SHOW BIBLES (relevant to this request) ===\n\n" + bibles_text
     if mode and mode in MODE_INSTRUCTIONS:
         base += "\n\n" + MODE_INSTRUCTIONS[mode]
     return base
@@ -421,7 +503,11 @@ def execute_tool_call(name, args_str):
 def run_generation(prompt, two_pass=True, mode=None, model=None, chat_history=None):
     """Run tool-calling loop via OpenRouter + optional two-pass critique."""
     model = model or DEFAULT_MODEL
-    sys_prompt = get_system_prompt_for_mode(mode)
+    # Detect shows from current prompt + recent history
+    detect_text = prompt
+    if chat_history:
+        detect_text += " " + " ".join((m.get("content") or "")[:500] for m in chat_history[-4:])
+    sys_prompt = get_system_prompt_for_mode(mode, user_text=detect_text)
 
     # Build messages with conversation history
     messages = []
@@ -506,7 +592,7 @@ class ChatRequest(BaseModel):
     message: str
     chat_id: Optional[str] = None
     project_id: Optional[str] = None
-    two_pass: bool = True
+    two_pass: bool = False
     file_context: Optional[str] = None
     mode: Optional[str] = None
     model: Optional[str] = None
@@ -636,7 +722,6 @@ async def chat_stream(req: ChatRequest):
 
     mode = req.mode
     model = req.model or DEFAULT_MODEL
-    sys_prompt = get_system_prompt_for_mode(mode)
 
     # Load chat history for context
     chat_history = None
@@ -644,6 +729,12 @@ async def chat_stream(req: ChatRequest):
         existing = load_json(f".tmp/chats/{req.chat_id}.json")
         if existing:
             chat_history = existing.get("messages", [])
+
+    # Detect shows from current prompt + recent history
+    detect_text = prompt
+    if chat_history:
+        detect_text += " " + " ".join((m.get("content") or "")[:500] for m in chat_history[-4:])
+    sys_prompt = get_system_prompt_for_mode(mode, user_text=detect_text)
 
     async def generate():
         try:
