@@ -250,12 +250,23 @@ def openrouter_chat(model, messages, system=None, temperature=1.0, tools=None):
     return resp.json()
 
 
-def openrouter_chat_stream(model, messages, system=None, temperature=1.0):
-    """Streaming version — yields text chunks as they arrive. No tools (streaming is final-response only)."""
+def openrouter_chat_stream(model, messages, system=None, temperature=1.0, tools=None):
+    """
+    Streaming — yields dicts as deltas arrive:
+      {'type': 'content', 'text': '...'}  — text token chunk
+      {'type': 'tool_calls', 'calls': [...]}  — final assembled tool calls (at stream end)
+    Streams content AND tool calls in one pass, so the user sees text immediately.
+    """
     msgs = list(messages)
     if system:
         msgs = [{"role": "system", "content": system}] + msgs
     payload = {"model": model, "messages": msgs, "temperature": temperature, "stream": True}
+    if tools:
+        payload["tools"] = tools
+
+    # Accumulator for tool calls that stream in as deltas
+    tool_calls = {}  # index -> {id, name, arguments}
+
     with httpx.stream(
         "POST",
         f"{OPENROUTER_BASE}/chat/completions",
@@ -263,7 +274,12 @@ def openrouter_chat_stream(model, messages, system=None, temperature=1.0):
         json=payload,
         timeout=120.0,
     ) as resp:
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            body = resp.read().decode("utf-8", errors="ignore")
+            raise httpx.HTTPStatusError(
+                f"OpenRouter {resp.status_code}: {body[:500]}",
+                request=resp.request, response=resp,
+            )
         for line in resp.iter_lines():
             if not line or not line.startswith("data: "):
                 continue
@@ -272,12 +288,35 @@ def openrouter_chat_stream(model, messages, system=None, temperature=1.0):
                 break
             try:
                 chunk = json.loads(data)
-                delta = (chunk.get("choices") or [{}])[0].get("delta", {})
+                delta = (chunk.get("choices") or [{}])[0].get("delta", {}) or {}
                 content = delta.get("content")
                 if content:
-                    yield content
+                    yield {"type": "content", "text": content}
+                tc_deltas = delta.get("tool_calls") or []
+                for tcd in tc_deltas:
+                    idx = tcd.get("index", 0)
+                    if idx not in tool_calls:
+                        tool_calls[idx] = {"id": "", "name": "", "arguments": ""}
+                    if tcd.get("id"):
+                        tool_calls[idx]["id"] = tcd["id"]
+                    fn = tcd.get("function") or {}
+                    if fn.get("name"):
+                        tool_calls[idx]["name"] = fn["name"]
+                    if fn.get("arguments"):
+                        tool_calls[idx]["arguments"] += fn["arguments"]
             except Exception:
                 continue
+
+    if tool_calls:
+        assembled = []
+        for idx in sorted(tool_calls.keys()):
+            tc = tool_calls[idx]
+            assembled.append({
+                "id": tc["id"],
+                "type": "function",
+                "function": {"name": tc["name"], "arguments": tc["arguments"] or "{}"},
+            })
+        yield {"type": "tool_calls", "calls": assembled}
 
 
 # ── Dataset stats (computed once) ──
@@ -652,8 +691,21 @@ class ProjectRequest(BaseModel):
 
 
 # ── Login ──
+# Shared default password (can be overridden per-user via env vars below).
+# Each user gets their own login so we can track who's doing what.
+_DEFAULT_PASS = os.getenv("SUPERBOT_PASS", "pfmsuperbot@")
 VALID_USERS = {
-    "werewolf": os.getenv("SUPERBOT_PASS", "pfmsuperbot@"),
+    "werewolf": _DEFAULT_PASS,
+    "user1": os.getenv("SUPERBOT_PASS_USER1", _DEFAULT_PASS),
+    "user2": os.getenv("SUPERBOT_PASS_USER2", _DEFAULT_PASS),
+    "user3": os.getenv("SUPERBOT_PASS_USER3", _DEFAULT_PASS),
+    "user4": os.getenv("SUPERBOT_PASS_USER4", _DEFAULT_PASS),
+    "user5": os.getenv("SUPERBOT_PASS_USER5", _DEFAULT_PASS),
+    "user6": os.getenv("SUPERBOT_PASS_USER6", _DEFAULT_PASS),
+    "user7": os.getenv("SUPERBOT_PASS_USER7", _DEFAULT_PASS),
+    "user8": os.getenv("SUPERBOT_PASS_USER8", _DEFAULT_PASS),
+    "user9": os.getenv("SUPERBOT_PASS_USER9", _DEFAULT_PASS),
+    "user10": os.getenv("SUPERBOT_PASS_USER10", _DEFAULT_PASS),
 }
 
 
@@ -795,46 +847,39 @@ async def chat_stream(req: ChatRequest):
                         messages.append({"role": role, "content": content})
             messages.append({"role": "user", "content": f"{STATS_BLOCK}\n\nUSER REQUEST:\n{prompt}"})
             tool_log = []
-            msg = {}
-            made_any_tool_call = False
+            draft = ""
 
-            # Tool calling loop — uses non-streaming to detect tool calls reliably
+            # Tool calling loop — STREAMING throughout so content flows to user immediately
             for round_num in range(4):
-                yield f"data: {json.dumps({'stage': f'Thinking... (round {round_num+1})'})}\n\n"
-                resp = openrouter_chat(model, messages, system=sys_prompt, temperature=1.0, tools=OPENAI_TOOLS)
-                choice = (resp.get("choices") or [{}])[0]
-                msg = choice.get("message") or {}
+                round_content = ""
+                round_tool_calls = []
+                # Tools attached to every round so model can call more if needed
+                for ev in openrouter_chat_stream(model, messages, system=sys_prompt, temperature=1.0, tools=OPENAI_TOOLS):
+                    if ev["type"] == "content":
+                        round_content += ev["text"]
+                        draft += ev["text"]
+                        yield f"data: {json.dumps({'token': ev['text']})}\n\n"
+                    elif ev["type"] == "tool_calls":
+                        round_tool_calls = ev["calls"]
 
-                tool_calls = msg.get("tool_calls")
-                if not tool_calls:
+                if not round_tool_calls:
+                    # Model finished without asking for more tools — done
                     break
 
-                made_any_tool_call = True
-                messages.append(msg)
-                for tc in tool_calls:
+                # Append assistant turn (content + tool_calls) then execute tools
+                messages.append({
+                    "role": "assistant",
+                    "content": round_content or None,
+                    "tool_calls": round_tool_calls,
+                })
+                for tc in round_tool_calls:
                     fn_name = tc["function"]["name"]
                     fn_args = tc["function"].get("arguments", "{}")
                     tool_log.append({"tool": fn_name, "args": json.loads(fn_args) if isinstance(fn_args, str) else fn_args})
-                    yield f"data: {json.dumps({'stage': f'Calling {fn_name}...'})}\n\n"
+                    yield f"data: {json.dumps({'stage': f'Fetching {fn_name}...'})}\n\n"
                     result = execute_tool_call(fn_name, fn_args)
                     result = truncate_result(result)
                     messages.append({"role": "tool", "tool_call_id": tc["id"], "content": json.dumps(result, default=str)})
-
-            # If we have content from the non-streaming call and no tool calls were made,
-            # that content IS the final response. Stream it out as a single chunk.
-            # If we made tool calls, re-run with streaming for the final response.
-            draft = ""
-            if made_any_tool_call:
-                # Final call with streaming — no tools this time since model already gathered data
-                yield f"data: {json.dumps({'stage': 'Writing response...'})}\n\n"
-                for chunk in openrouter_chat_stream(model, messages, system=sys_prompt, temperature=1.0):
-                    draft += chunk
-                    yield f"data: {json.dumps({'token': chunk})}\n\n"
-            else:
-                # No tool calls — the non-streaming response IS the answer
-                draft = msg.get("content") or ""
-                if draft:
-                    yield f"data: {json.dumps({'token': draft})}\n\n"
 
             critique = None
             final = draft
@@ -853,14 +898,15 @@ async def chat_stream(req: ChatRequest):
                 if "REWRITE NEEDED" in critique.upper():
                     yield f"data: {json.dumps({'stage': 'Rewriting based on critique...'})}\n\n"
                     final = ""
-                    for chunk in openrouter_chat_stream(model, [{"role": "user", "content": (
+                    for ev in openrouter_chat_stream(model, [{"role": "user", "content": (
                         f"The user asked:\n{prompt}\n\n"
                         f"You wrote this draft:\n{draft}\n\n"
                         f"Your creative director reviewed it:\n{critique}\n\n"
                         f"Now rewrite fixing every issue. Keep what works. Return ONLY the improved response."
                     )}], system=sys_prompt, temperature=1.0):
-                        final += chunk
-                        yield f"data: {json.dumps({'token': chunk, 'replace': True})}\n\n"
+                        if ev["type"] == "content":
+                            final += ev["text"]
+                            yield f"data: {json.dumps({'token': ev['text'], 'replace': True})}\n\n"
                     if not final:
                         final = draft
 
@@ -885,7 +931,15 @@ async def chat_stream(req: ChatRequest):
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
-    return StreamingResponse(generate(), media_type="text/event-stream")
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",  # disable any proxy buffering
+            "Connection": "keep-alive",
+        },
+    )
 
 
 # ── Compare endpoint ──
