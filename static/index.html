@@ -447,6 +447,7 @@ async function send(){
       body:JSON.stringify({message:txt,chat_id:chatId,project_id:projId,two_pass:twoPass,file_context:fileCtx||null,mode:currentMode||null,model:$('modelSel').value||null})
     });
     const reader=resp.body.getReader();const dec=new TextDecoder();let buf='';
+    let streamText='';let streamDiv=null;
     while(true){
       const{done,value}=await reader.read();if(done)break;
       buf+=dec.decode(value,{stream:true});
@@ -456,15 +457,33 @@ async function send(){
         try{
           const d=JSON.parse(line.slice(6));
           if(d.stage){const st=$('stageText');if(st)st.innerHTML=`<div class="dot"></div> ${esc(d.stage)}`}
+          if(d.token){
+            // First token — replace loading indicator with streaming message
+            if(!streamDiv){
+              ld.remove();
+              const div=document.createElement('div');div.className='msg';div.id='streamMsg';
+              div.innerHTML=`<div class="msg-in"><div class="av av-a">${PFM}</div><div class="mc" id="streamMc"></div></div>`;
+              $('msgs').appendChild(div);streamDiv=$('streamMc');
+            }
+            if(d.replace){streamText=d.token}else{streamText+=d.token}
+            streamDiv.innerHTML=md(streamText);scroll();
+          }
           if(d.done){
-            ld.remove();chatId=d.chat_id;
+            // Replace streaming message with final rendered message (includes tool log + critique)
+            const sm=$('streamMsg');if(sm)sm.remove();
+            if(ld.parentNode)ld.remove();
+            chatId=d.chat_id;
             addMsg('assistant',d.response,d.tool_log,d.draft,d.critique);scroll();loadChats();
           }
-          if(d.error){ld.remove();addMsg('assistant','Error: '+d.error);scroll()}
+          if(d.error){
+            const sm=$('streamMsg');if(sm)sm.remove();
+            if(ld.parentNode)ld.remove();
+            addMsg('assistant','Error: '+d.error);scroll()
+          }
         }catch(e){}
       }
     }
-  }catch(e){ld.remove();addMsg('assistant','Error: '+e.message);scroll()}
+  }catch(e){const sm=$('streamMsg');if(sm)sm.remove();if(ld.parentNode)ld.remove();addMsg('assistant','Error: '+e.message);scroll()}
   busy=false;files=[];renderFiles();
 }
 

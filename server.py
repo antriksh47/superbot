@@ -245,6 +245,36 @@ def openrouter_chat(model, messages, system=None, temperature=1.0, tools=None):
     return resp.json()
 
 
+def openrouter_chat_stream(model, messages, system=None, temperature=1.0):
+    """Streaming version — yields text chunks as they arrive. No tools (streaming is final-response only)."""
+    msgs = list(messages)
+    if system:
+        msgs = [{"role": "system", "content": system}] + msgs
+    payload = {"model": model, "messages": msgs, "temperature": temperature, "stream": True}
+    with httpx.stream(
+        "POST",
+        f"{OPENROUTER_BASE}/chat/completions",
+        headers=openrouter_headers(),
+        json=payload,
+        timeout=120.0,
+    ) as resp:
+        resp.raise_for_status()
+        for line in resp.iter_lines():
+            if not line or not line.startswith("data: "):
+                continue
+            data = line[6:]
+            if data.strip() == "[DONE]":
+                break
+            try:
+                chunk = json.loads(data)
+                delta = (chunk.get("choices") or [{}])[0].get("delta", {})
+                content = delta.get("content")
+                if content:
+                    yield content
+            except Exception:
+                continue
+
+
 # ── Dataset stats (computed once) ──
 from collections import defaultdict
 
@@ -754,9 +784,11 @@ async def chat_stream(req: ChatRequest):
             messages.append({"role": "user", "content": f"{STATS_BLOCK}\n\nUSER REQUEST:\n{prompt}"})
             tool_log = []
             msg = {}
+            made_any_tool_call = False
 
+            # Tool calling loop — uses non-streaming to detect tool calls reliably
             for round_num in range(4):
-                yield f"data: {json.dumps({'stage': f'Querying data tools... (round {round_num+1})'})}\n\n"
+                yield f"data: {json.dumps({'stage': f'Thinking... (round {round_num+1})'})}\n\n"
                 resp = openrouter_chat(model, messages, system=sys_prompt, temperature=1.0, tools=OPENAI_TOOLS)
                 choice = (resp.get("choices") or [{}])[0]
                 msg = choice.get("message") or {}
@@ -765,6 +797,7 @@ async def chat_stream(req: ChatRequest):
                 if not tool_calls:
                     break
 
+                made_any_tool_call = True
                 messages.append(msg)
                 for tc in tool_calls:
                     fn_name = tc["function"]["name"]
@@ -775,13 +808,28 @@ async def chat_stream(req: ChatRequest):
                     result = truncate_result(result)
                     messages.append({"role": "tool", "tool_call_id": tc["id"], "content": json.dumps(result, default=str)})
 
-            draft = msg.get("content") or ""
+            # If we have content from the non-streaming call and no tool calls were made,
+            # that content IS the final response. Stream it out as a single chunk.
+            # If we made tool calls, re-run with streaming for the final response.
+            draft = ""
+            if made_any_tool_call:
+                # Final call with streaming — no tools this time since model already gathered data
+                yield f"data: {json.dumps({'stage': 'Writing response...'})}\n\n"
+                for chunk in openrouter_chat_stream(model, messages, system=sys_prompt, temperature=1.0):
+                    draft += chunk
+                    yield f"data: {json.dumps({'token': chunk})}\n\n"
+            else:
+                # No tool calls — the non-streaming response IS the answer
+                draft = msg.get("content") or ""
+                if draft:
+                    yield f"data: {json.dumps({'token': draft})}\n\n"
+
             critique = None
             final = draft
 
-            # Smart two-pass critique
+            # Smart two-pass critique (only if explicitly enabled)
             if req.two_pass and should_critique(draft):
-                yield f"data: {json.dumps({'stage': 'Pass 2: Critiquing draft...'})}\n\n"
+                yield f"data: {json.dumps({'stage': 'Critiquing draft...'})}\n\n"
                 critique_input = (
                     f"USER'S ORIGINAL REQUEST:\n{prompt}\n\n"
                     f"DRAFT RESPONSE:\n{draft}\n\n"
@@ -791,14 +839,18 @@ async def chat_stream(req: ChatRequest):
                 critique = (cr.get("choices") or [{}])[0].get("message", {}).get("content") or ""
 
                 if "REWRITE NEEDED" in critique.upper():
-                    yield f"data: {json.dumps({'stage': 'Pass 3: Rewriting based on critique...'})}\n\n"
-                    rw = openrouter_chat(model, [{"role": "user", "content": (
+                    yield f"data: {json.dumps({'stage': 'Rewriting based on critique...'})}\n\n"
+                    final = ""
+                    for chunk in openrouter_chat_stream(model, [{"role": "user", "content": (
                         f"The user asked:\n{prompt}\n\n"
                         f"You wrote this draft:\n{draft}\n\n"
                         f"Your creative director reviewed it:\n{critique}\n\n"
                         f"Now rewrite fixing every issue. Keep what works. Return ONLY the improved response."
-                    )}], system=sys_prompt, temperature=1.0)
-                    final = (rw.get("choices") or [{}])[0].get("message", {}).get("content") or draft
+                    )}], system=sys_prompt, temperature=1.0):
+                        final += chunk
+                        yield f"data: {json.dumps({'token': chunk, 'replace': True})}\n\n"
+                    if not final:
+                        final = draft
 
             # Save chat
             chat_id = req.chat_id or str(uuid.uuid4())
