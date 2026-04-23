@@ -104,12 +104,25 @@ html,body{height:100%;overflow:hidden;font-family:'Inter',system-ui,sans-serif;b
 .mode-btn:hover{background:var(--sb-h);color:var(--tx)}
 .mode-btn.active{background:var(--ac);border-color:var(--ac);color:#fff}
 
+/* INCOGNITO INDICATOR */
+body.incognito .ibar-row{border-color:#a78bfa}
+body.incognito .ibar::before{content:'🕶 Incognito — this chat won\'t be saved';position:absolute;top:-24px;left:50%;transform:translateX(-50%);background:#2e1065;color:#c4b5fd;font-size:11px;padding:3px 10px;border-radius:6px;white-space:nowrap}
+
 /* COMPARE */
-.compare-bar{display:flex;gap:4px;padding:0 4px;margin-bottom:2px}
-.compare-sel{flex:1;background:var(--ubg);border:1px solid var(--ib);border-radius:8px;color:var(--tx);font:400 11px 'Inter',sans-serif;padding:5px 8px;outline:0}
-.compare-results{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;padding:20px 24px;max-width:1200px;margin:0 auto}
-.compare-card{background:var(--ubg);border:1px solid var(--ib);border-radius:10px;padding:14px;overflow:auto;max-height:600px}
-.compare-card h4{font-size:12px;color:var(--ac);margin-bottom:8px;font-weight:600}
+.compare-bar{display:flex;gap:4px;padding:0 4px;margin-bottom:2px;flex-wrap:wrap}
+.compare-sel{flex:1;min-width:120px;background:var(--ubg);border:1px solid var(--ib);border-radius:8px;color:var(--tx);font:400 11px 'Inter',sans-serif;padding:5px 8px;outline:0}
+/* Compare messages break out of the normal 768px msg-in width to use the full viewport */
+.msg.msg-wide .msg-in{max-width:100%;padding:0 16px}
+.compare-results{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:14px;margin:0;width:100%}
+.compare-card{background:var(--ubg);border:1px solid var(--ib);border-radius:10px;padding:14px;overflow:auto;max-height:70vh;min-width:0}
+.compare-card h4{font-size:12px;color:var(--ac);margin-bottom:8px;font-weight:600;display:flex;justify-content:space-between;align-items:center}
+.compare-card .mc{font-size:13px;line-height:1.55}
+.compare-card .mc table{font-size:12px}
+/* On narrow screens the cards stack single-column; scroll each card independently */
+@media(max-width:720px){
+  .compare-results{grid-template-columns:1fr}
+  .compare-card{max-height:50vh}
+}
 
 /* MARKDOWN TABLES */
 .mc table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13px}
@@ -166,11 +179,37 @@ html,body{height:100%;overflow:hidden;font-family:'Inter',system-ui,sans-serif;b
 .login-box button:hover{background:var(--ac2)}
 .login-err{color:#ef4444;font-size:12px;margin-bottom:8px;min-height:18px}
 
+/* Mobile hamburger — hidden on desktop */
+.mobile-menu{display:none;position:absolute;top:12px;left:12px;z-index:50;background:var(--ubg);border:1px solid var(--ib);border-radius:8px;width:36px;height:36px;align-items:center;justify-content:center;cursor:pointer;color:var(--tx)}
+.mobile-menu svg{width:18px;height:18px}
+.sidebar-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:90}
+.sidebar.open ~ .sidebar-backdrop{display:block}
+
 @media(max-width:768px){
-  .sidebar{position:absolute;z-index:100;transform:translateX(-100%);transition:transform .2s}
+  .sidebar{position:fixed;top:0;bottom:0;left:0;z-index:100;transform:translateX(-100%);transition:transform .2s;width:85vw;max-width:300px}
   .sidebar.open{transform:translateX(0)}
-  .ibar{left:0}
+  .main{width:100%}
+  .ibar{left:0;padding:8px 12px 14px}
+  .msg-in{padding:0 14px;gap:10px}
+  .msgs{padding-top:56px}
   .sugs{grid-template-columns:1fr}
+  .mobile-menu{display:flex}
+  h1{font-size:18px}
+  .av{width:26px;height:26px;font-size:11px;flex-shrink:0}
+  .mc{font-size:14px}
+  .mode-bar{overflow-x:auto;flex-wrap:nowrap;padding-bottom:4px}
+  .mode-bar::-webkit-scrollbar{height:0}
+  .mode-btn{flex-shrink:0}
+  .compare-bar{flex-direction:column}
+  .compare-sel{width:100%}
+  .empty{padding:20px 14px}
+  .empty h2{font-size:20px}
+  .ibar-foot{display:none}
+}
+@media(max-width:480px){
+  .msg-in{padding:0 10px}
+  .ibar{padding:6px 8px 10px}
+  .mode-btn{font-size:10px;padding:3px 10px}
 }
 </style>
 </head>
@@ -203,12 +242,16 @@ html,body{height:100%;overflow:hidden;font-family:'Inter',system-ui,sans-serif;b
     <button class="proj-add" onclick="createProject()" title="New project">+</button>
   </div>
 
-  <div class="sb-label">Recent</div>
+  <div class="sb-label" style="display:flex;justify-content:space-between;align-items:center">
+    <span>Recent</span>
+    <input type="search" id="chatSearch" placeholder="Search..." oninput="filterChats()" style="background:var(--ubg);border:1px solid var(--ib);border-radius:6px;color:var(--sb-t);font:400 11px 'Inter',sans-serif;padding:3px 8px;outline:0;width:110px">
+  </div>
   <div class="chat-list" id="chatList"></div>
 
   <div class="sb-label">Settings</div>
   <div class="sb-panel">
-    <label><input type="checkbox" id="twoPassToggle"> Two-pass (slower, higher quality)</label>
+    <label><input type="checkbox" id="incognitoToggle" onchange="toggleIncognito()"> 🕶 Incognito (don't save chat)</label>
+    <label style="margin-top:6px"><input type="checkbox" id="twoPassToggle"> Two-pass (slower, higher quality)</label>
     <label style="margin-top:8px;flex-direction:column;align-items:flex-start;gap:4px">
       <span>Model</span>
       <select id="modelSel" style="width:100%;background:var(--ubg);border:1px solid var(--ib);border-radius:6px;color:var(--sb-t);font:400 12px 'Inter',sans-serif;padding:6px 8px;outline:0">
@@ -227,6 +270,10 @@ html,body{height:100%;overflow:hidden;font-family:'Inter',system-ui,sans-serif;b
 </aside>
 
 <div class="main">
+  <button class="mobile-menu" onclick="toggleSidebar()" aria-label="Menu">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+  </button>
+  <div class="sidebar-backdrop" onclick="toggleSidebar()"></div>
   <div class="msgs" id="msgs"></div>
   <div class="ibar">
     <div class="ibar-in">
@@ -265,7 +312,17 @@ html,body{height:100%;overflow:hidden;font-family:'Inter',system-ui,sans-serif;b
 </div>
 
 <script>
-let chatId=null,busy=false,files=[],currentMode='';
+let chatId=null,busy=false,files=[],currentMode='',incognito=false;
+function toggleSidebar(){$('sidebar').classList.toggle('open')}
+function toggleIncognito(){
+  incognito=$('incognitoToggle').checked;
+  document.body.classList.toggle('incognito',incognito);
+  if(incognito){
+    // Start fresh — don't bleed prior chat context into incognito session
+    chatId=null;
+    $('msgs').innerHTML='';showEmpty();
+  }
+}
 const PFM='🤖';
 const $=s=>document.getElementById(s);
 const api=(p,o={})=>fetch(p,{headers:{'Content-Type':'application/json'},...o}).then(r=>r.json());
@@ -341,16 +398,24 @@ async function loadProjects(){
     sel.value=cur;
   }catch(e){}
 }
+let _chatsCache=[];
 async function loadChats(){
   try{
     const pid=$('projSel').value;const url=pid?`/api/chats?project_id=${pid}`:'/api/chats';
-    const cs=await api(url);$('chatList').innerHTML=cs.map(c=>`
-      <div class="ci ${c.id===chatId?'act':''}" onclick="openChat('${c.id}')">
-        <span class="ci-t">${esc(c.title||'Untitled')}</span>
-        <button class="ci-x" onclick="event.stopPropagation();delChat('${c.id}')">&#x2715;</button>
-      </div>`).join('');
+    _chatsCache=await api(url);
+    renderChats();
   }catch(e){}
 }
+function renderChats(){
+  const q=($('chatSearch')?.value||'').trim().toLowerCase();
+  const filtered=q?_chatsCache.filter(c=>(c.title||'').toLowerCase().includes(q)):_chatsCache;
+  $('chatList').innerHTML=filtered.map(c=>`
+    <div class="ci ${c.id===chatId?'act':''}" onclick="openChat('${c.id}')">
+      <span class="ci-t">${esc(c.title||'Untitled')}</span>
+      <button class="ci-x" onclick="event.stopPropagation();delChat('${c.id}')">&#x2715;</button>
+    </div>`).join('')||`<div style="padding:12px;color:var(--txm);font-size:12px;text-align:center">${q?'No matches':'No chats yet'}</div>`;
+}
+function filterChats(){renderChats()}
 function switchProject(){loadChats()}
 
 async function createProject(){
@@ -383,6 +448,8 @@ async function openChat(id){
     const c=await api(`/api/chats/${id}`);$('msgs').innerHTML='';
     c.messages.forEach(m=>addMsg(m.role,m.content,m.tool_log,m.draft,m.critique));
     scroll();loadChats();
+    // Close sidebar on mobile after selecting a chat
+    if(window.innerWidth<=768)$('sidebar').classList.remove('open');
   }catch(e){}
 }
 
@@ -444,7 +511,7 @@ async function send(){
     // Use SSE for stage updates
     const resp=await fetch('/api/chat/stream',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({message:txt,chat_id:chatId,project_id:projId,two_pass:twoPass,file_context:fileCtx||null,mode:currentMode||null,model:$('modelSel').value||null})
+      body:JSON.stringify({message:txt,chat_id:chatId,project_id:projId,two_pass:twoPass,file_context:fileCtx||null,mode:currentMode||null,model:$('modelSel').value||null,incognito})
     });
     const reader=resp.body.getReader();const dec=new TextDecoder();let buf='';
     let streamText='';let streamDiv=null;
@@ -472,8 +539,8 @@ async function send(){
             // Replace streaming message with final rendered message (includes tool log + critique)
             const sm=$('streamMsg');if(sm)sm.remove();
             if(ld.parentNode)ld.remove();
-            chatId=d.chat_id;
-            addMsg('assistant',d.response,d.tool_log,d.draft,d.critique);scroll();loadChats();
+            if(!incognito)chatId=d.chat_id;
+            addMsg('assistant',d.response,d.tool_log,d.draft,d.critique);scroll();if(!incognito)loadChats();
           }
           if(d.error){
             const sm=$('streamMsg');if(sm)sm.remove();
@@ -498,8 +565,8 @@ async function sendCompare(txt,models){
 
   // Create the compare container immediately — cards will populate as tokens arrive
   const cmpId='cmp_'+Date.now();
-  const host=document.createElement('div');host.className='msg';host.id=cmpId;
-  host.innerHTML=`<div class="msg-in"><div class="av av-a">${PFM}</div><div class="mc"><strong>Comparing ${models.length} models</strong><div class="compare-results" id="${cmpId}_grid"></div></div></div>`;
+  const host=document.createElement('div');host.className='msg msg-wide';host.id=cmpId;
+  host.innerHTML=`<div class="msg-in"><div class="av av-a">${PFM}</div><div class="mc" style="flex:1;min-width:0"><strong>Comparing ${models.length} models</strong><div class="compare-results" id="${cmpId}_grid" style="margin-top:10px"></div></div></div>`;
   $('msgs').appendChild(host);
 
   // Pre-create a card per model so the user can see all of them start at once

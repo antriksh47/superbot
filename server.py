@@ -670,6 +670,7 @@ class ChatRequest(BaseModel):
     file_context: Optional[str] = None
     mode: Optional[str] = None
     model: Optional[str] = None
+    incognito: bool = False
 
 
 class CompareRequest(BaseModel):
@@ -916,9 +917,9 @@ async def chat(req: ChatRequest):
     if req.file_context:
         prompt = f"{req.file_context}\n\n{prompt}"
 
-    # Load chat history for context
+    # Load chat history for context (skip for incognito)
     chat_history = None
-    if req.chat_id:
+    if req.chat_id and not req.incognito:
         existing = load_json(f".tmp/chats/{req.chat_id}.json")
         if existing:
             chat_history = existing.get("messages", [])
@@ -929,18 +930,20 @@ async def chat(req: ChatRequest):
         raise HTTPException(500, str(e))
 
     chat_id = req.chat_id or str(uuid.uuid4())
-    chat_key = f".tmp/chats/{chat_id}.json"
-    chat_data = load_json(chat_key) or {"id": chat_id, "title": "", "messages": [], "project_id": req.project_id}
-    chat_data["messages"].append({"role": "user", "content": req.message})
-    chat_data["messages"].append({
-        "role": "assistant", "content": result["response"],
-        "tool_log": result["tool_log"],
-        "draft": result.get("draft"), "critique": result.get("critique"),
-        "model": req.model or DEFAULT_MODEL,
-    })
-    if not chat_data["title"]:
-        chat_data["title"] = req.message[:50]
-    store_json(chat_key, chat_data)
+    # Incognito: don't persist chats to disk/GCS
+    if not req.incognito:
+        chat_key = f".tmp/chats/{chat_id}.json"
+        chat_data = load_json(chat_key) or {"id": chat_id, "title": "", "messages": [], "project_id": req.project_id}
+        chat_data["messages"].append({"role": "user", "content": req.message})
+        chat_data["messages"].append({
+            "role": "assistant", "content": result["response"],
+            "tool_log": result["tool_log"],
+            "draft": result.get("draft"), "critique": result.get("critique"),
+            "model": req.model or DEFAULT_MODEL,
+        })
+        if not chat_data["title"]:
+            chat_data["title"] = req.message[:50]
+        store_json(chat_key, chat_data)
 
     return {
         "chat_id": chat_id,
@@ -961,9 +964,9 @@ async def chat_stream(req: ChatRequest):
     mode = req.mode
     model = req.model or DEFAULT_MODEL
 
-    # Load chat history for context
+    # Load chat history for context (skip for incognito)
     chat_history = None
-    if req.chat_id:
+    if req.chat_id and not req.incognito:
         existing = load_json(f".tmp/chats/{req.chat_id}.json")
         if existing:
             chat_history = existing.get("messages", [])
@@ -1054,21 +1057,22 @@ async def chat_stream(req: ChatRequest):
                     if not final:
                         final = draft
 
-            # Save chat
+            # Save chat (unless incognito)
             chat_id = req.chat_id or str(uuid.uuid4())
-            chat_key = f".tmp/chats/{chat_id}.json"
-            chat_data = load_json(chat_key) or {"id": chat_id, "title": "", "messages": [], "project_id": req.project_id}
-            chat_data["messages"].append({"role": "user", "content": req.message})
-            chat_data["messages"].append({
-                "role": "assistant", "content": final,
-                "tool_log": tool_log,
-                "draft": draft if critique else None,
-                "critique": critique,
-                "model": model,
-            })
-            if not chat_data["title"]:
-                chat_data["title"] = req.message[:50]
-            store_json(chat_key, chat_data)
+            if not req.incognito:
+                chat_key = f".tmp/chats/{chat_id}.json"
+                chat_data = load_json(chat_key) or {"id": chat_id, "title": "", "messages": [], "project_id": req.project_id}
+                chat_data["messages"].append({"role": "user", "content": req.message})
+                chat_data["messages"].append({
+                    "role": "assistant", "content": final,
+                    "tool_log": tool_log,
+                    "draft": draft if critique else None,
+                    "critique": critique,
+                    "model": model,
+                })
+                if not chat_data["title"]:
+                    chat_data["title"] = req.message[:50]
+                store_json(chat_key, chat_data)
 
             yield f"data: {json.dumps({'done': True, 'chat_id': chat_id, 'response': final, 'draft': draft if critique else None, 'critique': critique, 'tool_log': tool_log, 'model': model})}\n\n"
 
