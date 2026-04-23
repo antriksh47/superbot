@@ -153,7 +153,12 @@ body.incognito .ibar::before{content:'🕶 Incognito — this chat won\'t be sav
 .btn-send.go{background:var(--ac)}
 .btn-send.go:hover{background:var(--ac2)}
 .btn-send svg{width:16px;height:16px;color:var(--bg)}
-.ibar-foot{text-align:center;font-size:10px;color:var(--txm)}
+.ibar-foot{text-align:center;font-size:11px;color:var(--txm);margin-top:6px;user-select:none}
+.pfm-foot{display:inline-flex;align-items:center;gap:5px;letter-spacing:0.2px}
+.pfm-bolt{width:11px;height:11px;color:#facc15;filter:drop-shadow(0 0 4px rgba(250,204,21,.6));animation:pfm-spark 2.4s ease-in-out infinite}
+.pfm-brand{font-weight:600;background:linear-gradient(90deg,#fbbf24,#f97316 50%,#ef4444);-webkit-background-clip:text;background-clip:text;color:transparent}
+@keyframes pfm-spark{0%,100%{transform:scale(1) rotate(0);filter:drop-shadow(0 0 3px rgba(250,204,21,.5))}50%{transform:scale(1.15) rotate(-8deg);filter:drop-shadow(0 0 8px rgba(250,204,21,.9))}}
+@media(prefers-reduced-motion:reduce){.pfm-bolt{animation:none}}
 
 /* Hidden file input */
 #fileInput{display:none}
@@ -304,7 +309,13 @@ body.incognito .ibar::before{content:'🕶 Incognito — this chat won\'t be sav
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
         </button>
       </div>
-      <div class="ibar-foot">Superbot uses Gemini + your historical ad data. Always verify metrics.</div>
+      <div class="ibar-foot">
+        <span class="pfm-foot">
+          Designed with
+          <svg class="pfm-bolt" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13 2L3 14h7l-1 8 11-14h-7l1-6z"/></svg>
+          at <span class="pfm-brand">Pocket FM</span>
+        </span>
+      </div>
     </div>
   </div>
   <input type="file" id="fileInput" multiple accept=".txt,.md,.csv,.json,.docx,.pdf,.xlsx,.xls,.srt,.png,.jpg,.jpeg,.webp" onchange="handleFiles(this.files)">
