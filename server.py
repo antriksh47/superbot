@@ -109,17 +109,24 @@ def delete_json(path: str):
 
 
 def list_json_keys(prefix: str) -> list:
+    """List JSON file keys directly under prefix (not recursive).
+    Pass prefix with trailing slash (e.g. ".tmp/chats/user1/") to avoid
+    `user1` accidentally matching `user10`."""
     keys = set()
+    # Normalize: ensure no trailing slash on the Path, but keep it for GCS filter
+    prefix_fs = prefix.rstrip("/")
     bucket = _get_gcs()
     if bucket:
         try:
-            for blob in bucket.list_blobs(prefix=prefix):
+            # Use delimiter="/" so we only get direct children, not nested dirs
+            gcs_prefix = prefix if prefix.endswith("/") else prefix + "/"
+            for blob in bucket.list_blobs(prefix=gcs_prefix, delimiter="/"):
                 if blob.name.endswith(".json"):
                     keys.add(blob.name)
         except Exception:
             pass
-    local_dir = Path(prefix)
-    if local_dir.exists():
+    local_dir = Path(prefix_fs)
+    if local_dir.exists() and local_dir.is_dir():
         for p in local_dir.glob("*.json"):
             keys.add(str(p))
     return sorted(keys, reverse=True)
@@ -752,6 +759,83 @@ def check_admin(request):
 _bootstrap_users()
 
 
+def caller_user(request) -> str:
+    """Resolve the calling user from the X-User header. Falls back to 'shared'
+    for backward-compatibility if header absent. Only returns a known user."""
+    u = (request.headers.get("X-User") or "").lower().strip()
+    if not u:
+        return "shared"
+    if u in get_users():
+        return u
+    return "shared"
+
+
+def chat_key(user: str, chat_id: str) -> str:
+    return f".tmp/chats/{user}/{chat_id}.json"
+
+
+def chat_list_prefix(user: str) -> str:
+    return f".tmp/chats/{user}/"
+
+
+def _migrate_shared_chats_to_all_users():
+    """One-time migration: copy any chats sitting at the OLD flat path
+    (.tmp/chats/*.json with no user subdir) into every user's folder, so
+    existing work is available under each account. Runs idempotently — if
+    the flat file is already gone, nothing happens."""
+    # Legacy flat path has no trailing slash — gets top-level JSON files only
+    legacy_keys = []
+    bucket = _get_gcs()
+    if bucket:
+        try:
+            # Top-level only: prefix=".tmp/chats/", delimiter="/"
+            for blob in bucket.list_blobs(prefix=".tmp/chats/", delimiter="/"):
+                if blob.name.endswith(".json"):
+                    legacy_keys.append(blob.name)
+        except Exception:
+            pass
+    legacy_local = Path(".tmp/chats")
+    if legacy_local.exists():
+        for p in legacy_local.glob("*.json"):
+            legacy_keys.append(str(p))
+    legacy_keys = sorted(set(legacy_keys))
+    if not legacy_keys:
+        return 0
+
+    users = list(get_users().keys())
+    copied = 0
+    for key in legacy_keys:
+        data = load_json(key)
+        if not data:
+            continue
+        # Derive the chat id from the filename
+        chat_id = Path(key).stem
+        # Ensure updated_at exists so sorting works
+        if "updated_at" not in data:
+            data["updated_at"] = datetime.now().isoformat()
+        # Copy to each user's namespace (skip if the user's copy already exists)
+        for u in users:
+            dest = chat_key(u, chat_id)
+            if not load_json(dest):
+                store_json(dest, data)
+                copied += 1
+        # Clean up the legacy file so it stops showing up in future listings
+        try:
+            delete_json(key)
+        except Exception:
+            pass
+    return copied
+
+
+# Run migration (idempotent). Counts copies for the log.
+try:
+    n = _migrate_shared_chats_to_all_users()
+    if n:
+        print(f"[migration] copied {n} legacy chat records to user folders")
+except Exception as e:
+    print(f"[migration] skipped: {e}")
+
+
 @app.post("/api/login")
 async def login(req: LoginRequest):
     user = verify_user(req.username, req.password)
@@ -912,7 +996,8 @@ async def list_models():
 
 
 @app.post("/api/chat")
-async def chat(req: ChatRequest):
+async def chat(req: ChatRequest, request: Request):
+    user = caller_user(request)
     prompt = req.message
     if req.file_context:
         prompt = f"{req.file_context}\n\n{prompt}"
@@ -920,7 +1005,7 @@ async def chat(req: ChatRequest):
     # Load chat history for context (skip for incognito)
     chat_history = None
     if req.chat_id and not req.incognito:
-        existing = load_json(f".tmp/chats/{req.chat_id}.json")
+        existing = load_json(chat_key(user, req.chat_id))
         if existing:
             chat_history = existing.get("messages", [])
 
@@ -932,8 +1017,9 @@ async def chat(req: ChatRequest):
     chat_id = req.chat_id or str(uuid.uuid4())
     # Incognito: don't persist chats to disk/GCS
     if not req.incognito:
-        chat_key = f".tmp/chats/{chat_id}.json"
-        chat_data = load_json(chat_key) or {"id": chat_id, "title": "", "messages": [], "project_id": req.project_id}
+        ckey = chat_key(user, chat_id)
+        now = datetime.now().isoformat()
+        chat_data = load_json(ckey) or {"id": chat_id, "title": "", "messages": [], "project_id": req.project_id, "created_at": now}
         chat_data["messages"].append({"role": "user", "content": req.message})
         chat_data["messages"].append({
             "role": "assistant", "content": result["response"],
@@ -943,7 +1029,8 @@ async def chat(req: ChatRequest):
         })
         if not chat_data["title"]:
             chat_data["title"] = req.message[:50]
-        store_json(chat_key, chat_data)
+        chat_data["updated_at"] = now  # bump on every message so list sort reflects activity
+        store_json(ckey, chat_data)
 
     return {
         "chat_id": chat_id,
@@ -955,8 +1042,9 @@ async def chat(req: ChatRequest):
 
 
 @app.post("/api/chat/stream")
-async def chat_stream(req: ChatRequest):
+async def chat_stream(req: ChatRequest, request: Request):
     """SSE endpoint that sends stage updates during generation."""
+    user = caller_user(request)
     prompt = req.message
     if req.file_context:
         prompt = f"{req.file_context}\n\n{prompt}"
@@ -967,7 +1055,7 @@ async def chat_stream(req: ChatRequest):
     # Load chat history for context (skip for incognito)
     chat_history = None
     if req.chat_id and not req.incognito:
-        existing = load_json(f".tmp/chats/{req.chat_id}.json")
+        existing = load_json(chat_key(user, req.chat_id))
         if existing:
             chat_history = existing.get("messages", [])
 
@@ -1057,11 +1145,12 @@ async def chat_stream(req: ChatRequest):
                     if not final:
                         final = draft
 
-            # Save chat (unless incognito)
+            # Save chat (unless incognito) — scoped to the calling user
             chat_id = req.chat_id or str(uuid.uuid4())
             if not req.incognito:
-                chat_key = f".tmp/chats/{chat_id}.json"
-                chat_data = load_json(chat_key) or {"id": chat_id, "title": "", "messages": [], "project_id": req.project_id}
+                ckey = chat_key(user, chat_id)
+                now = datetime.now().isoformat()
+                chat_data = load_json(ckey) or {"id": chat_id, "title": "", "messages": [], "project_id": req.project_id, "created_at": now}
                 chat_data["messages"].append({"role": "user", "content": req.message})
                 chat_data["messages"].append({
                     "role": "assistant", "content": final,
@@ -1072,7 +1161,8 @@ async def chat_stream(req: ChatRequest):
                 })
                 if not chat_data["title"]:
                     chat_data["title"] = req.message[:50]
-                store_json(chat_key, chat_data)
+                chat_data["updated_at"] = now
+                store_json(ckey, chat_data)
 
             yield f"data: {json.dumps({'done': True, 'chat_id': chat_id, 'response': final, 'draft': draft if critique else None, 'critique': critique, 'tool_log': tool_log, 'model': model})}\n\n"
 
@@ -1191,32 +1281,43 @@ async def compare_models(req: CompareRequest):
 # ── CRUD endpoints ──
 
 @app.get("/api/chats")
-async def list_chats(project_id: Optional[str] = None):
+async def list_chats(request: Request, project_id: Optional[str] = None):
+    user = caller_user(request)
     chats = []
-    for key in list_json_keys(".tmp/chats"):
+    for key in list_json_keys(chat_list_prefix(user)):
         try:
             c = load_json(key)
             if not c:
                 continue
             if project_id and c.get("project_id") != project_id:
                 continue
-            chats.append({"id": c["id"], "title": c.get("title", ""), "project_id": c.get("project_id"), "msg_count": len(c.get("messages", []))})
+            chats.append({
+                "id": c["id"],
+                "title": c.get("title", ""),
+                "project_id": c.get("project_id"),
+                "msg_count": len(c.get("messages", [])),
+                "updated_at": c.get("updated_at") or c.get("created_at") or "",
+            })
         except Exception:
             pass
-    return chats[:50]
+    # Sort by updated_at desc (most recent activity first)
+    chats.sort(key=lambda c: c["updated_at"], reverse=True)
+    return chats[:100]
 
 
 @app.get("/api/chats/{chat_id}")
-async def get_chat(chat_id: str):
-    c = load_json(f".tmp/chats/{chat_id}.json")
+async def get_chat(chat_id: str, request: Request):
+    user = caller_user(request)
+    c = load_json(chat_key(user, chat_id))
     if not c:
         raise HTTPException(404, "Chat not found")
     return c
 
 
 @app.delete("/api/chats/{chat_id}")
-async def delete_chat(chat_id: str):
-    delete_json(f".tmp/chats/{chat_id}.json")
+async def delete_chat(chat_id: str, request: Request):
+    user = caller_user(request)
+    delete_json(chat_key(user, chat_id))
     return {"ok": True}
 
 

@@ -325,7 +325,13 @@ function toggleIncognito(){
 }
 const PFM='🤖';
 const $=s=>document.getElementById(s);
-const api=(p,o={})=>fetch(p,{headers:{'Content-Type':'application/json'},...o}).then(r=>r.json());
+// Default headers for every API call — X-User scopes reads/writes to the logged-in user's namespace
+function authHeaders(extra){
+  const h={'Content-Type':'application/json','X-User':sessionStorage.getItem('sb_auth')||''};
+  if(extra)Object.assign(h,extra);
+  return h;
+}
+const api=(p,o={})=>fetch(p,{headers:authHeaders(o.headers),...o}).then(r=>r.json());
 
 // ── Mode selector ──
 function setMode(btn,mode){
@@ -510,7 +516,7 @@ async function send(){
   try{
     // Use SSE for stage updates
     const resp=await fetch('/api/chat/stream',{
-      method:'POST',headers:{'Content-Type':'application/json'},
+      method:'POST',headers:authHeaders(),
       body:JSON.stringify({message:txt,chat_id:chatId,project_id:projId,two_pass:twoPass,file_context:fileCtx||null,mode:currentMode||null,model:$('modelSel').value||null,incognito})
     });
     const reader=resp.body.getReader();const dec=new TextDecoder();let buf='';
@@ -587,7 +593,7 @@ async function sendCompare(txt,models){
 
   try{
     const resp=await fetch('/api/compare',{
-      method:'POST',headers:{'Content-Type':'application/json'},
+      method:'POST',headers:authHeaders(),
       body:JSON.stringify({message:txt,models,mode:currentMode||null,file_context:fileCtx||null})
     });
     if(!resp.ok){throw new Error(`HTTP ${resp.status}`)}
