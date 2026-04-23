@@ -1088,31 +1088,100 @@ async def chat_stream(req: ChatRequest):
 
 # ── Compare endpoint ──
 
+def _compare_stream_one_model(model_id: str, prompt: str, mode, queue, loop):
+    """
+    Run a single model's streaming + tool-calling loop in a thread.
+    Pushes events into an asyncio.Queue tagged with the model_id.
+    Events: {'model': model_id, 'type': 'stage'|'token'|'tool'|'done'|'error', ...}
+    """
+    import asyncio as _asyncio
+    def push(payload):
+        payload["model"] = model_id
+        _asyncio.run_coroutine_threadsafe(queue.put(payload), loop)
+
+    try:
+        sys_prompt = get_system_prompt_for_mode(mode, user_text=prompt)
+        messages = [{"role": "user", "content": f"{STATS_BLOCK}\n\nUSER REQUEST:\n{prompt}"}]
+        tool_log = []
+        draft = ""
+
+        for round_num in range(4):
+            round_content = ""
+            round_tool_calls = []
+            for ev in openrouter_chat_stream(model_id, messages, system=sys_prompt, temperature=1.0, tools=OPENAI_TOOLS):
+                if ev["type"] == "content":
+                    round_content += ev["text"]
+                    draft += ev["text"]
+                    push({"type": "token", "text": ev["text"]})
+                elif ev["type"] == "tool_calls":
+                    round_tool_calls = ev["calls"]
+
+            if not round_tool_calls:
+                break
+
+            messages.append({
+                "role": "assistant",
+                "content": round_content or None,
+                "tool_calls": round_tool_calls,
+            })
+            for tc in round_tool_calls:
+                fn_name = tc["function"]["name"]
+                fn_args = tc["function"].get("arguments", "{}")
+                tool_log.append({"tool": fn_name, "args": json.loads(fn_args) if isinstance(fn_args, str) else fn_args})
+                push({"type": "stage", "text": f"Fetching {fn_name}..."})
+                result = execute_tool_call(fn_name, fn_args)
+                result = truncate_result(result)
+                messages.append({"role": "tool", "tool_call_id": tc["id"], "content": json.dumps(result, default=str)})
+
+        push({"type": "done", "response": draft, "tool_log": tool_log})
+    except Exception as e:
+        push({"type": "error", "error": str(e)})
+
+
 @app.post("/api/compare")
 async def compare_models(req: CompareRequest):
-    """Run the same prompt against multiple models and return all results."""
+    """Run the same prompt against N models in PARALLEL with real-time streaming."""
+    import asyncio
     prompt = req.message
     if req.file_context:
         prompt = f"{req.file_context}\n\n{prompt}"
 
+    models = req.models[:4]  # cap at 4 to avoid runaway cost
+
     async def generate():
-        results = {}
-        for model_id in req.models[:4]:  # Max 4 models
-            model_short = model_id.split("/")[-1] if "/" in model_id else model_id
-            yield f"data: {json.dumps({'stage': f'Running {model_short}...'})}\n\n"
-            try:
-                result = run_generation(prompt, two_pass=False, mode=req.mode, model=model_id)
-                results[model_id] = {
-                    "response": result["response"],
-                    "tool_log": result["tool_log"],
-                    "model": model_id,
-                }
-            except Exception as e:
-                results[model_id] = {"response": f"Error: {str(e)}", "tool_log": [], "model": model_id}
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue = asyncio.Queue()
 
-        yield f"data: {json.dumps({'done': True, 'results': results})}\n\n"
+        # Announce which models we're running so frontend can pre-create cards
+        yield f"data: {json.dumps({'models': models})}\n\n"
 
-    return StreamingResponse(generate(), media_type="text/event-stream")
+        # Spawn all model streams as background threads — they run in parallel
+        tasks = [
+            loop.run_in_executor(None, _compare_stream_one_model, m, prompt, req.mode, queue, loop)
+            for m in models
+        ]
+        done_count = 0
+        total = len(models)
+
+        while done_count < total:
+            ev = await queue.get()
+            if ev.get("type") in ("done", "error"):
+                done_count += 1
+            yield f"data: {json.dumps(ev)}\n\n"
+
+        # Make sure all threads have actually finished
+        await asyncio.gather(*tasks, return_exceptions=True)
+        yield f"data: {json.dumps({'all_done': True})}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 # ── CRUD endpoints ──

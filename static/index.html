@@ -489,22 +489,41 @@ async function send(){
 
 function use(t){$('inp').value=t;ar($('inp'));ts();send()}
 
-// ── Compare ──
+// ── Compare (parallel streaming) ──
 async function sendCompare(txt,models){
   let fileCtx='';
   if(files.length){fileCtx=files.map(f=>`[ATTACHED FILE: ${f.name} (${f.type})]\n${f.text}`).join('\n\n')}
   const showVal=$('showFilter').value;
   if(showVal){fileCtx=`[SHOW FILTER: Focus on show "${showVal}"]\n\n`+(fileCtx||'')}
 
-  const ld=document.createElement('div');ld.className='msg';ld.id='ldMsg';
-  ld.innerHTML=`<div class="msg-in"><div class="av av-a">${PFM}</div><div class="mc"><div class="stage" id="stageText"><div class="dot"></div> Comparing ${models.length} models...</div><div class="ld"><span></span><span></span><span></span></div></div></div>`;
-  $('msgs').appendChild(ld);scroll();
+  // Create the compare container immediately — cards will populate as tokens arrive
+  const cmpId='cmp_'+Date.now();
+  const host=document.createElement('div');host.className='msg';host.id=cmpId;
+  host.innerHTML=`<div class="msg-in"><div class="av av-a">${PFM}</div><div class="mc"><strong>Comparing ${models.length} models</strong><div class="compare-results" id="${cmpId}_grid"></div></div></div>`;
+  $('msgs').appendChild(host);
+
+  // Pre-create a card per model so the user can see all of them start at once
+  const grid=$(`${cmpId}_grid`);
+  const state={};  // model_id -> {buf, el, stageEl, toolLog, done}
+  for(const m of models){
+    const safeId=m.replace(/[^a-zA-Z0-9]/g,'_');
+    const name=m.split('/').pop();
+    const card=document.createElement('div');card.className='compare-card';
+    card.innerHTML=`
+      <h4>${esc(name)}</h4>
+      <div class="stage" style="color:var(--txm);font-size:11px;margin-bottom:6px" id="${cmpId}_${safeId}_stage"><div class="dot"></div> Starting...</div>
+      <div class="mc" id="${cmpId}_${safeId}_body"></div>`;
+    grid.appendChild(card);
+    state[m]={buf:'',el:$(`${cmpId}_${safeId}_body`),stageEl:$(`${cmpId}_${safeId}_stage`),toolLog:[],done:false};
+  }
+  scroll();
 
   try{
     const resp=await fetch('/api/compare',{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({message:txt,models,mode:currentMode||null,file_context:fileCtx||null})
     });
+    if(!resp.ok){throw new Error(`HTTP ${resp.status}`)}
     const reader=resp.body.getReader();const dec=new TextDecoder();let buf='';
     while(true){
       const{done,value}=await reader.read();if(done)break;
@@ -514,25 +533,43 @@ async function sendCompare(txt,models){
         if(!line.startsWith('data: '))continue;
         try{
           const d=JSON.parse(line.slice(6));
-          if(d.stage){const st=$('stageText');if(st)st.innerHTML=`<div class="dot"></div> ${esc(d.stage)}`}
-          if(d.done){
-            ld.remove();
-            // Render compare results
-            const results=d.results;
-            const div=document.createElement('div');div.className='msg';
-            let cards='';
-            for(const[mid,r] of Object.entries(results)){
-              const name=mid.split('/').pop();
-              cards+=`<div class="compare-card"><h4>${esc(name)}</h4><div class="mc">${md(r.response)}</div></div>`;
-            }
-            div.innerHTML=`<div class="msg-in"><div class="av av-a">${PFM}</div><div class="mc"><strong>Compare Results</strong><div class="compare-results">${cards}</div></div></div>`;
-            $('msgs').appendChild(div);scroll();
+          if(d.all_done){continue}
+          if(d.models){continue}
+          const s=state[d.model];
+          if(!s)continue;
+          if(d.type==='stage'){
+            s.stageEl.innerHTML=`<div class="dot"></div> ${esc(d.text)}`;
           }
-          if(d.error){ld.remove();addMsg('assistant','Error: '+d.error);scroll()}
+          if(d.type==='token'){
+            s.buf+=d.text;
+            // First token — hide stage line
+            if(s.stageEl && s.stageEl.style.display!=='none'){s.stageEl.style.display='none'}
+            s.el.innerHTML=md(s.buf);
+          }
+          if(d.type==='done'){
+            s.done=true;
+            s.stageEl.innerHTML=`<span style="color:var(--ac)">✓ done</span>`;
+            s.stageEl.style.display='';
+            if(d.response)s.el.innerHTML=md(d.response);
+          }
+          if(d.type==='error'){
+            s.done=true;
+            s.stageEl.innerHTML=`<span style="color:#f87171">✗ error</span>`;
+            s.stageEl.style.display='';
+            s.el.innerHTML=`<div style="color:#f87171">${esc(d.error)}</div>`;
+          }
+          scroll();
         }catch(e){}
       }
     }
-  }catch(e){ld.remove();addMsg('assistant','Error: '+e.message);scroll()}
+  }catch(e){
+    // Mark all undone cards as failed
+    for(const m of models){
+      if(!state[m].done){
+        state[m].stageEl.innerHTML=`<span style="color:#f87171">✗ ${esc(e.message)}</span>`;
+      }
+    }
+  }
 }
 
 // ── Messages ──
