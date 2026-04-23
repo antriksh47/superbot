@@ -533,7 +533,7 @@ async function send(){
               $('msgs').appendChild(div);streamDiv=$('streamMc');
             }
             if(d.replace){streamText=d.token}else{streamText+=d.token}
-            streamDiv.innerHTML=md(streamText);scroll();
+            streamUpdate(streamDiv,streamText);
           }
           if(d.done){
             // Replace streaming message with final rendered message (includes tool log + critique)
@@ -609,15 +609,14 @@ async function sendCompare(txt,models){
           }
           if(d.type==='token'){
             s.buf+=d.text;
-            // First token — hide stage line
             if(s.stageEl && s.stageEl.style.display!=='none'){s.stageEl.style.display='none'}
-            s.el.innerHTML=md(s.buf);
+            streamUpdate(s.el,s.buf);
           }
           if(d.type==='done'){
             s.done=true;
             s.stageEl.innerHTML=`<span style="color:var(--ac)">✓ done</span>`;
             s.stageEl.style.display='';
-            if(d.response)s.el.innerHTML=md(d.response);
+            if(d.response){streamUpdate(s.el,d.response)}
           }
           if(d.type==='error'){
             s.done=true;
@@ -625,7 +624,6 @@ async function sendCompare(txt,models){
             s.stageEl.style.display='';
             s.el.innerHTML=`<div style="color:#f87171">${esc(d.error)}</div>`;
           }
-          scroll();
         }catch(e){}
       }
     }
@@ -658,7 +656,47 @@ function addMsg(role,content,tlog,draft,critique){
   $('msgs').appendChild(d);
 }
 
-function scroll(){const m=$('msgs');m.scrollTop=m.scrollHeight}
+// Smart scroll: only auto-scroll when user is already at (or near) the bottom.
+// If they scroll up to read, we stop forcing them back down.
+let _autoScrollPinned=true;
+(function initScrollTracking(){
+  // One-time listener install on the msgs container
+  const install=()=>{
+    const m=document.getElementById('msgs');if(!m)return;
+    m.addEventListener('scroll',()=>{
+      const dist=m.scrollHeight-m.scrollTop-m.clientHeight;
+      _autoScrollPinned=dist<80;  // within 80px of bottom = "pinned"
+    },{passive:true});
+  };
+  if(document.getElementById('msgs'))install();else document.addEventListener('DOMContentLoaded',install);
+})();
+function scroll(){
+  if(!_autoScrollPinned)return;
+  const m=document.getElementById('msgs');if(m)m.scrollTop=m.scrollHeight;
+}
+
+// RAF-batched stream renderer. Tokens arrive every 20-100ms but we only
+// rebuild/scroll at most once per animation frame (~16ms), which eliminates
+// the jitter from forcing layout on every token.
+const _streamPending=new Map();
+function streamUpdate(el,text){
+  if(!el)return;
+  if(_streamPending.has(el)){_streamPending.set(el,text);return}
+  _streamPending.set(el,text);
+  requestAnimationFrame(()=>{
+    const latest=_streamPending.get(el);
+    _streamPending.delete(el);
+    el.innerHTML=md(latest);
+    scroll();
+    // If this element lives inside a scrollable compare-card, auto-scroll
+    // the card's interior — but only when user is pinned to bottom of it.
+    const card=el.closest('.compare-card');
+    if(card){
+      const dist=card.scrollHeight-card.scrollTop-card.clientHeight;
+      if(dist<80)card.scrollTop=card.scrollHeight;
+    }
+  });
+}
 
 // ── Feedback ──
 async function fb(btn,rating){
